@@ -1,0 +1,17 @@
+# GeoDubber glossary: names and terms that must always be translated the same way.
+# Format: Source = Georgian        (one pair per line; lines starting with # are ignored)
+# Source = Source                  keeps that word in Latin letters (brands, untranslated names)
+#
+# This file is read at the start of translation. Edit it, then press Start Dubbing again.
+# Names below come from the first version of the Mickey 17 Georgian dub. Please check each spelling
+# against the film's credits before relying on it; the ones marked "check" were not verified.
+
+Mickey = მიკი
+Nasha = ნაშა
+Kenneth Marshall = კენეტ მარშალი
+Timo = ტიმო
+Ylfa = ილფა                 # check: earlier version used ელფა
+Dorothy = დოროთი
+Niflheim = ნიფლჰეიმი
+Darius Blank = დარიუს ბლანკი
+Jennifer = ჯენიფერ          # check

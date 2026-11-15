@@ -1,0 +1,19 @@
+# GeoDubber runtime dependencies (install.bat installs PyTorch separately: CUDA or CPU build).
+# Versions are minimums, NOT pinned/verified together - see README "Known limitations".
+edge-tts>=6.1
+google-genai>=1.0
+soundfile>=0.12
+PySide6>=6.6
+numpy>=1.26
+scipy>=1.11
+psutil>=5.9
+requests>=2.31
+yt-dlp>=2024.1.1
+huggingface_hub>=0.23
+faster-whisper>=1.0
+transformers>=4.40
+sentencepiece>=0.2
+f5-tts>=1.0
+pyannote.audio>=3.1
+demucs>=4.0
+datasets>=2.16.0

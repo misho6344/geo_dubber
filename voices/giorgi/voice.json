@@ -1,0 +1,12 @@
+{
+  "id": "giorgi",
+  "name": "giorgi",
+  "gender": "male",
+  "engine": "*",
+  "ref_audio": "voices/giorgi/ref.wav",
+  "ref_text": "გამარჯობა! დღეს მინდა გაგიზიაროთ საინტერესო ინფორმაცია. იმედი მაქვს, ეს დღე თქვენთვის სასიამოვნო და წარმატებული იქნება.",
+  "builtin": false,
+  "consent": true,
+  "note": "",
+  "builtin_params": {}
+}
