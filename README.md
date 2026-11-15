@@ -1,255 +1,279 @@
 # GeoDubber
 
-Windows desktop tool that dubs video dialogue into Georgian.
+**GeoDubber** is a Windows desktop application that dubs video dialogue into Georgian.
 
-## v3.10
+This README describes the slim source distribution. It includes the application code and installation scripts; large AI models and FFmpeg binaries are not bundled.
 
-* **No more waiting on a used-up daily quota.** When Gemini says the quota resets in hours (the server delay is over
-  30 minutes), the translator stops at once: each model is asked at most once, the remaining lines are left empty, and
-  the log says so. Before, it waited 120 s per round, six rounds per batch.
-* After the quota resets, run `scripts\reset_translations.py projects\<project>\state.json --only-web`, then Start Dubbing.
-  Lines that were already translated by Gemini are kept.
-* Short quota bursts (a few seconds) are still waited out as before.
+## Latest changes
 
-## v3.9
+### v3.10
 
-* **Pause, Stop and Cancel are separate buttons.**
-  * **Pause / Resume:** pauses the run and continues it later (unchanged).
-  * **Stop (keep progress):** stops the run and keeps finished steps, like the old Cancel. Start Dubbing resumes it.
-  * **Cancel and delete project:** stops the run if it is running, then deletes the project: its work files, the dubbed
-    video, subtitles and report, and its entry in the project list. **The original video is never deleted.** A YouTube
-    download is the original, so it is kept too. Both Stop and Cancel ask for confirmation first.
-* Cancel and delete is available whenever a project is running or loaded, including after Preview Translation.
+- **No more waiting on an exhausted daily quota.** When Gemini reports that a quota will reset in hours (a server delay longer than 30 minutes), the translator stops trying that model immediately. Each model is requested at most once, untranslated lines are left empty, and the log records why. Previous versions could wait 120 seconds per round across six rounds per batch.
+- After the quota resets, run:
 
-## v3.8
+  ```bash
+  python scripts/reset_translations.py "projects/<project>/state.json" --only-web
+  ```
 
-* **Retired model removed.** `gemini-2.5-flash` now returns 404 ("no longer available to new users") and was tried in
-  every round, costing a request and a wait each time. It is no longer in either list.
-* A daily quota on `gemini-3.8-flash` (429 with a cooldown of many hours) is not a fault: the 3.5 models keep working.
+  Then select **Start Dubbing**. Lines already translated by Gemini are preserved.
+- Short quota interruptions of a few seconds are still retried as before.
 
-## v3.7
+### v3.9
 
-* **Gemini model names fixed.** `gemini-flash-latest` returned 404 (not found) for this API, so the speaker analysis
-  skipped it. The lists now use the models your key serves (checked with `models.list`): translation tries
-  `gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-2.5-flash`, `gemini-3.8-flash`; speaker analysis uses the
-  same order without the last one first. A 429 means the key's quota is used up for that model; a 503 is temporary.
-* Tests updated to count the models from the list (101 pass; the 2 known v1 failures remain).
+- **Pause, Stop, and Cancel are separate actions.**
+  - **Pause / Resume** pauses processing and continues it later.
+  - **Stop (keep progress)** stops the run while preserving completed work. Select **Start Dubbing** to resume.
+  - **Cancel and delete project** stops a running job and deletes the project, its work files, dubbed video, subtitles, report, and project-list entry. **The original video is never deleted.** A downloaded YouTube video is treated as the original and is kept. Stop and Cancel both request confirmation.
+- Cancel and delete is available whenever a project is running or loaded, including after Preview Translation.
 
-## v3.6
+### v3.8
 
-* **Fix for the v3.5 pitch check, which moved too many lines** (257 in one log). Without a Gemini answer, the speakers
-  come from pitch alone, so pitch-tracker octave errors (a woman's line read at half pitch) were treated as the
-  wrong gender. Now:
-  * a line at half or double its character's pitch (within 6%) is kept with its character;
-  * if the check would move more than 20% of the measured lines, no voice is changed at all, and a warning says so.
-  With no Gemini key the characters are still guessed by pitch: add the key in Settings and re-run, or check the
-  samples in Review.
+- **Retired model removed.** `gemini-2.5-flash` returned 404 (`no longer available to new users`) in the tested API environment and was removed from both model lists, avoiding a failed request and unnecessary wait on every round.
+- A daily quota error on `gemini-3.8-flash` (429 with a cooldown of several hours) is not treated as a general application failure; the other configured models may still work.
 
-## v3.5
+### v3.7
 
-* **Voices stay on the right character for the whole film.** Before, each line's speaker was decided on its own, so one
-  wrong line could send a man to the female voice (or the reverse), and the problem grew over time. Now:
-  * every line's pitch is measured (up to 3 s per line);
-  * a line whose pitch clearly contradicts its character's gender moves to a character of the matching gender;
-    among same-gender characters, a line moves only when it is clearly closer to another character's pitch;
-  * a character's gender changes only when most of its voiced speech (at least 75%) is clearly the other gender;
-    this is always shown as a warning, and a gender you set yourself is never changed;
-  * unclear lines take the gender of nearby clear lines, so a single unclear line does not flip.
-  The warnings say how many lines were moved, and any line that has no matching character is reported, not forced.
-* **The 5-second gender sample is one character only.** The sample never includes another character's speech.
-  Before, it could join two of a character's lines across another character's line in between.
-* **Not tested with real audio here.** The pitch logic is covered by tests with synthetic voices, and the full
-  test suite passes (99 tests; the 2 known failures from v1 are still there). After updating, press Start Dubbing on
-  the project again (the speakers are re-detected), and listen to each character's sample in Review.
+- **Gemini model names corrected.** `gemini-flash-latest` returned 404 in the tested API environment, so speaker analysis skipped it. The configured model order was updated based on the models returned by `models.list` for the tested key:
+  - Translation: `gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-2.5-flash`, `gemini-3.8-flash`.
+  - Speaker analysis: the same configured models, with the last model ordered differently.
+- A 429 response means that model's quota is exhausted for the key; a 503 response is treated as temporary.
+- Tests were updated to use the model list: 101 tests passed; the two known v1 failures remained.
 
-## v3.4
+### v3.6
 
-* **Translation survives busy Gemini.** 503 (high demand), 504 (timeout) and 500 errors were not retried in v3.3:
-  the batch gave up and those lines went to the web fallback. They now wait (10 s, or the server's delay), the model
-  cools down, and the request is retried, like quota errors.
-* **Speaker detection:** the log you sent came from an older build. Use v3.3 or later, which retries busy models.
+- **Pitch-check correction.** The v3.5 check could move too many lines when pitch tracking made octave errors, such as measuring a woman's line at half its actual pitch.
+- A line at half or double its character's pitch (within 6%) is now kept with that character.
+- If a check would move more than 20% of measured lines, no voice assignments are changed and a warning is shown.
+- Without a Gemini key, character genders are still estimated from pitch. Add the key in Settings and rerun, or review the samples manually.
 
-## v3.3
+### v3.5
 
-* **Gemini speaker detection survives a busy model.** A 503 "high demand" or 429 answer is retried on the same model
-  (after 5, 15 and 30 seconds, cancel still works), then the next model is tried. The warning now lists the reasons
-  from all models, not just the first. The model order is `gemini-flash-latest`, `gemini-3.5-flash-lite`, `gemini-3.8-flash`.
+- **Voice assignments are checked across the whole film.** Previously, each line was evaluated independently, allowing one incorrect line to send a character to the wrong gendered voice. The updated checks:
+  - Measure each line's pitch (up to three seconds per line).
+  - Move a line when its pitch clearly contradicts its character's gender; among characters of the same gender, move it only when it is clearly closer to another character's pitch.
+  - Change a character's gender only when at least 75% of its voiced speech clearly indicates the other gender. This is reported as a warning. A gender set manually is never changed.
+  - Assign unclear lines using nearby clear lines, reducing the chance that one unclear line flips the assignment.
+- **The five-second gender sample contains one character only.** It no longer joins two lines across another character's intervening speech.
+- **Real-audio testing note:** the pitch logic was covered by synthetic-voice tests, not a full real-film listening test. The test suite had 99 tests, with the same two known v1 failures. After updating, run Start Dubbing again so speakers are detected again, then listen to each character's sample in Review.
 
-## v3.2
+### v3.4
 
-* **Settings → Processing → Gemini API key:** paste the key once; it is saved in `settings.json` on this PC
-  (plain text). Leave it empty if you prefer the `GEMINI_API_KEY` environment variable. The key is used for
-  translation, timing rewrites and Gemini speaker detection.
-* Project regenerated from the current source.
+- **Translation retries temporary Gemini errors.** HTTP 503 (high demand), 504 (timeout), and 500 errors were not retried in v3.3. They now trigger a wait (10 seconds or the server-provided delay), model cooldown, and retry, like quota-related errors.
+- The speaker-detection log discussed for this release came from an older build; v3.3 or later includes retries for busy models.
 
-## v3.1 fixes from a real run log
+### v3.3
 
-* **Gemini key missing** (`Failed to initialise Gemini client`): the run used the web fallback for 93 lines and pitch-only
-  gender detection. The app now warns clearly about this. **Set the `GEMINI_API_KEY` environment variable** (Windows:
-  `setx GEMINI_API_KEY "your-key"`, then restart the app) and dub again after `scripts\reset_translations.py`.
-* **Demucs failed** with "Maximum segment is: 7.8": the quality preset used 8. Now 7, and the separator clamps to 7.8.
-  Without background separation the original speech stays faintly audible under the dub.
-* **Timing fit** is skipped with a warning when there is no key (it needs Gemini to rewrite lines).
+- **Gemini speaker detection can recover from a busy model.** A 503 high-demand or 429 response is retried on the same model after 5, 15, and 30 seconds. Cancellation remains available during retries, then the next model is tried.
+- Warnings list reasons from all attempted models. The model order in this release was `gemini-flash-latest`, `gemini-3.5-flash-lite`, and `gemini-3.8-flash`.
 
-## v3 changes (translation context, timing fit, quality control)
+### v3.2
 
-| Area | What v3 does | Settings |
+- **Settings → Processing → Gemini API key:** enter the key once; it is saved in `settings.json` on this PC as plain text.
+- Leave the setting empty to use the `GEMINI_API_KEY` environment variable instead.
+- The key is used for translation, timing rewrites, and Gemini speaker detection.
+- The project was regenerated from the current source.
+
+### v3.1 fixes from a real run log
+
+- **Missing Gemini key:** when Gemini could not initialize, the run used web translation fallback for 93 lines and pitch-only gender detection. The application now warns about this. Set the `GEMINI_API_KEY` environment variable and restart the application:
+
+  ```cmd
+  setx GEMINI_API_KEY "your-key"
+  ```
+
+  After setting the key, restart the app and rerun the relevant translations with `scripts/reset_translations.py` if needed.
+- **Demucs segment-length error:** the quality preset used a maximum segment length of 8, but Demucs reported a maximum of 7.8. The preset was changed to 7 and the separator clamps the value to 7.8.
+- **Timing fit** is skipped with a warning when no Gemini key is configured, because Gemini is needed to rewrite lines.
+
+## v3 — Translation context, timing fit, and quality control
+
+| Area | What it does | Settings |
 |---|---|---|
-| Context-aware translation | Batches run **in order**. Each batch sees the last 8 English=>Georgian pairs, so names, running jokes and tone stay consistent. A **style note** for the film is added to the prompt. | `translation_sequential`, `translation_context_lines`, `translation_style_note` |
-| Idioms and jokes | The model is asked for the Georgian expression with the same effect. Lines it is unsure about are tagged `idiom / joke / pun / culture / unclear` and listed as warnings. The tag is stored as `tr_note` for Review. | - |
-| Timing fit (new stage "Timing fit") | After voice generation, each line's **real audio length** is compared with its window. Lines that still do not fit are rewritten shorter by Gemini (same meaning) and voiced again. Only the changed lines are regenerated. | `timing_fit_rounds` (0 = off) |
-| Silence trimming | Dead air at the start and end of each generated line is removed, so pauses follow the original rhythm and the dub drifts less. | `trim_clip_silence` |
-| Automatic quality control | After the timeline is built: **clipping**, **silent** clips, **too short** clips (words lost), **same-speaker overlap**, and **spill** of more than 0.3 s into another speaker's line. Results go to `state.json` under `qc` and as warnings. | `voice_qc` |
+| Context-aware translation | Batches run in order. Each batch receives the previous eight English-to-Georgian pairs to help maintain names, recurring jokes, and tone. A film-specific style note is also included in the prompt. | `translation_sequential`, `translation_context_lines`, `translation_style_note` |
+| Idioms and jokes | The model is asked to use a Georgian expression with the same effect. Uncertain lines are tagged as `idiom`, `joke`, `pun`, `culture`, or `unclear`; the tag is stored as `tr_note` for Review. | — |
+| Timing fit | After voice generation, each line's actual audio duration is compared with its available window. Lines that do not fit may be rewritten shorter by Gemini while preserving meaning, then voiced again. Only changed lines are regenerated. | `timing_fit_rounds` (`0` disables the stage) |
+| Silence trimming | Removes dead air at the start and end of generated lines so pauses better follow the original rhythm and the dub drifts less. | `trim_clip_silence` |
+| Automatic quality control | Checks clipping, silent clips, clips that are too short, same-speaker overlap, and spill longer than 0.3 seconds into another speaker's line. Results are stored under `qc` in `state.json` and shown as warnings. | `voice_qc` |
 
-Not in v3 (honest list): sentence-level splitting of long lines with inserted pauses, and automatic listening
-checks (the QC works on the audio levels and timing, not on speech content). Those need either the English
-subtitles (`imported_subtitles`) or a listening pass by you in Review.
+**Not included in v3:** sentence-level splitting of long lines with inserted pauses, and automatic listening checks. Quality control checks audio levels and timing, not whether the spoken content is correct. These tasks require imported English subtitles (`imported_subtitles`) or a listening pass in Review.
 
-New tests: `tests/test_v3_quality.py` (quality functions, notes, memory, shortening) and a timing-fit
-pipeline test. The suite runs 81 tests; 2 old speaker-threshold tests still fail as before.
+New tests include `tests/test_v3_quality.py` for quality functions, notes, context memory, and shortening, plus a timing-fit pipeline test. At that release stage, the suite contained 81 tests; two older speaker-threshold tests were still failing as they had in v1.
 
-## v2 changes (read this first)
+## v2 — Earlier improvements
 
-Built from a review of a real run (Mickey 17 dub). What changed and why:
+Version 2 was built after reviewing a real Mickey 17 dubbing run.
 
-| Problem found in the v1 run | What v2 does |
+| Problem found in the v1 run | What v2 changed |
 |---|---|
-| Gemini hit the free-tier quota (about 3,700 HTTP 429 errors in the logs). Only about 140 Gemini answers succeeded, and roughly 530 lines fell back to a word-level web translator. | Lines are sent in **batches** (one request per 16 lines, JSON in/out). Quota errors **wait for the server's retry delay**, skip models that are cooling down, and retry. The web fallback is **flagged** (`mt_source = web`) and shown as a warning. |
-| Every answer was accepted as long as it contained a Georgian letter, so English words and missing lines got through. | Each line is **validated**: it must exist, contain Georgian, contain no stray English words (unless the glossary keeps the word), and lines far too long for their window get one "shorter" retry. |
-| Names were not kept consistent (the glossary code was never filled in and applied to the English source). | `glossary.txt` (project folder) holds `Source = Georgian` pairs. They are given to the model in the prompt. |
-| Lines that failed were kept in English and read by a Georgian voice. | Failed lines stay **empty** (silence) and are translated again on the next run. A warning says how many. |
-| Whisper repeated words in loops ("word- word- word-"), and the quality preset used beam 1. | Repetition runs of 3+ are collapsed; Whisper gets temperature fallback; the quality preset uses beam 5. |
-| Edge has one male and one female Georgian voice, so every extra character of the same gender shared a voice. | Extra Edge **variants** (slightly different pitch and speed) are added for each gender. Turn off with `edge_character_variants: false`. **Listen to them before relying on them.** |
-| `voices/giorgi/voice.json` and `voices/nino/voice.json` used Georgian quotes (`„…“`) which are not valid JSON, so both reference voices were silently dropped. | Fixed. The reference audio files (`ref.wav` / `ref.mp3`) are NOT in the zip; put them back in the folders if you use `f5_georgian`. |
-| Gemini's gender decision was never checked against the measured pitch. | A **pitch cross-check** warns when Gemini says male with a median pitch of 200 Hz or more, or female with 140 Hz or less. The character is also marked in the review. |
-| The hard-coded Edge voice preference (`edge_ka_giorgi` / `edge_ka_eka`) broke when more voices existed. | Removed; voices of the right gender are chosen in list order. |
-| A live Gemini API key was stored in `settings.json`. | **Removed from the shipped file.** Set the `GEMINI_API_KEY` environment variable instead. **If that key was shared or uploaded anywhere, revoke it and create a new one.** |
+| Gemini free-tier quota errors caused about 3,700 HTTP 429 responses in the logs. About 140 Gemini answers succeeded, while roughly 530 lines fell back to a word-level web translator. | Lines are sent in batches (one request per 16 lines, JSON in and out). Quota errors wait for the server's retry delay, skip models that are cooling down, and retry. Web fallback is flagged with `mt_source = web` and shown as a warning. |
+| Answers were accepted if they contained a Georgian letter, allowing English words and missing lines to pass. | Each line is validated: it must exist, contain Georgian, avoid stray English words unless the glossary allows them, and receive one shorter retry when it is far too long for its timing window. |
+| Names were inconsistent because the glossary was not fully applied to the English source. | `glossary.txt` contains `Source = Georgian` pairs and is supplied to the model in the prompt. |
+| Failed translations remained in English and were read by a Georgian voice. | Failed lines are left empty (silence) and can be translated again on the next run. A warning reports how many lines failed. |
+| Whisper repeated words in loops, and the quality preset used beam size 1. | Repetition runs of three or more are collapsed; Whisper uses temperature fallback; the quality preset uses beam size 5. |
+| Edge had one male and one female Georgian voice, so characters of the same gender shared a voice. | Optional Edge voice variants use small pitch and speed changes. Disable them with `edge_character_variants: false`. Listen to variants before relying on them. |
+| `voices/giorgi/voice.json` and `voices/nino/voice.json` used Georgian quotation marks that are invalid in JSON, so the reference voices were silently dropped. | The JSON was corrected. Reference audio (`ref.wav` or `ref.mp3`) is not included in the ZIP; restore it to the appropriate folders when using `f5_georgian`. |
+| Gemini gender decisions were not checked against measured pitch. | A pitch cross-check warns when Gemini labels a voice male with a median pitch of 200 Hz or higher, or female with a median pitch of 140 Hz or lower. The character is also marked in Review. |
+| Hard-coded Edge voice preferences broke when more voices were added. | Hard-coded preferences such as `edge_ka_giorgi` and `edge_ka_eka` were removed; voices of the correct gender are selected in list order. |
+| A live Gemini API key had been stored in `settings.json`. | The key was removed from the shipped file. Set `GEMINI_API_KEY` instead. If a key was shared or uploaded, revoke it and create a new one. |
 
-### How to re-dub a project with v2
-1. Put your Gemini key in the `GEMINI_API_KEY` environment variable (or in Settings).
-2. Optional: edit `glossary.txt` for the names in your film.
-3. Clear the old translations, so they are redone with v2: `python scripts\reset_translations.py projects\<project>\state.json`
-   (add `--only-web` to redo only the lines that came from the web fallback). A backup `state.json.bak` is written.
-4. Start Dubbing. Read the warnings and check the flagged lines and genders in Review before you continue.
+### Re-dub a project with v2 or later translation logic
 
-### Settings added in v2 (edit `settings.json`; not in the GUI yet)
-* `translation_glossary_file` - path to a glossary (empty = `glossary.txt` in the app folder)
-* `edge_character_variants` - `true` (default) adds pitch/speed variants for Edge voices; `false` = two voices only
+1. Configure `GEMINI_API_KEY` as an environment variable or enter it in Settings.
+2. Optionally edit `glossary.txt` to add the names used in the film.
+3. Clear old translations so they can be regenerated:
 
-### Tests
-`python -m pytest tests` runs 71 tests (69 pass) with stand-ins for the AI models. Two tests in `tests/test_speakers_sync.py`
-(gender confidence thresholds) were already failing in v1 and are unchanged. Three v1 test expectations were
-out of date with the code and were corrected (presets: fast = tiny, quality = small; a Gemini-free diarization
-fallback test; a test that no longer depends on thread order).
+   ```bash
+   python scripts/reset_translations.py "projects/<project>/state.json"
+   ```
 
-**Not verified in this build:** the real Gemini, Whisper, Edge and F5 calls, the audibility of the Edge variants, and
-the GUI (PySide6 was not available). Those need a run on your PC.
+   Add `--only-web` to redo only lines that came from the web fallback. A backup named `state.json.bak` is written.
+4. Select **Start Dubbing**. Review warnings and check flagged lines and character genders in Review before continuing.
 
-**This build is the slim source folder (about 1 MB).** FFmpeg is not included — keep your existing `tools\ffmpeg` folder, or let `install.bat` install it with winget. Do not delete your `venv` when you update; copy these files over the old project.
+### v2 settings
 
-Two voices only: **Giorgi** (male) and **Nino** (female). With **Detect characters & gender (Gemini)** on, Gemini listens to the audio and decides how many characters there are, their gender and which voice each needs; the project settings update to match. If Gemini is unavailable, male/female are split locally by pitch. Your giorgi/nino reference clips are used only by the `f5_georgian` engine, not by Edge.
+These settings can be edited in `settings.json` (they were not available in the GUI at the time of v2):
 
-Speed presets (all three are faster than before):
+- `translation_glossary_file` — glossary path; an empty value uses `glossary.txt` in the application folder.
+- `edge_character_variants` — `true` (default) adds pitch/speed variants for Edge voices; `false` keeps only the two standard voices.
 
-| Priority | Speech model | Whisper beam | TTS lines at once | Video encode |
-|---|---|---|---|---|
-| fast | tiny | 1 | 8 | ultrafast (only if re-encoding) |
+### v2 test status
+
+At the v2 release stage, `python -m pytest tests` ran 71 tests: 69 passed. Two tests in `tests/test_speakers_sync.py` (gender confidence thresholds) had already been failing in v1 and were unchanged. Three v1 expectations that no longer matched the code were corrected: presets (fast = tiny, quality = small), Gemini-free diarization fallback, and a test that no longer depends on thread order.
+
+## Voices and speed presets
+
+The bundled voice configuration is intended to use two Georgian voices:
+
+- **Giorgi** — male.
+- **Nino** — female.
+
+With **Detect characters & gender (Gemini)** enabled, Gemini analyzes the audio and estimates the number of characters, their genders, and the voice assignment for each. Project settings are updated to match. If Gemini is unavailable, the application falls back to local male/female pitch estimation.
+
+The Giorgi and Nino reference clips are used only by the `f5_georgian` engine, not by Edge. Additional Edge variants may be generated from the standard voices; listen to them before relying on them.
+
+| Priority | Speech model | Whisper beam | TTS lines at once | Video encoding |
+|---|---:|---:|---:|---|
+| fast | tiny | 1 | 8 | ultrafast (only when re-encoding) |
 | balanced | base | 1 | 6 | veryfast |
 | quality | small | 5 | 4 | veryfast |
 
-The video track is still copied (not re-encoded) unless you burn subtitles.
+The video track is copied rather than re-encoded unless subtitles are burned into the video.
 
 ## 1. Install (Windows 10/11)
 
-> **Read "Status & limitations" before relying on it.** The pipeline, audio processing, resume/cancel logic and
-> export are implemented and tested. The AI-model integrations and the GUI were written against the libraries'
-> documented APIs but could **not** be run in the authoring environment (no internet to Hugging Face, no GPU, no Windows,
-> no PySide6). Verify them on your PC with the steps below.
+> **Read [Status and limitations](#7-status-and-limitations) before relying on the application.** The pipeline, audio processing, resume/cancel logic, and export were tested with stand-in model backends. The real AI-model integrations and GUI still need verification on your Windows PC.
 
-## 1. Install (Windows 10/11)
+1. Install **Python 3.11** from [python.org](https://www.python.org/downloads/). During setup, select **Add Python to PATH**.
+2. Double-click `install.bat`. It creates a virtual environment, installs PyTorch (CUDA build if an NVIDIA GPU is detected, otherwise CPU), installs the requirements, and attempts to install FFmpeg with winget if FFmpeg is missing.
+3. If FFmpeg is still missing, download a Windows build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and put `ffmpeg.exe` and `ffprobe.exe` in `tools\ffmpeg\bin\`, or add them to your Windows `PATH`.
+4. Run `start.bat` to launch the application.
 
-1. Install **Python 3.11** (python.org, tick *Add to PATH*).
-2. Double-click `install.bat` (creates `venv`, installs PyTorch — CUDA build if an NVIDIA GPU is found, otherwise CPU —
-   and the requirements; tries `winget install Gyan.FFmpeg` if FFmpeg is missing).
-3. **FFmpeg manually** (if needed): download a build from https://www.gyan.dev/ffmpeg/builds/ and put `ffmpeg.exe` and
-   `ffprobe.exe` into `tools\ffmpeg\bin\` (or add them to PATH).
-4. `start.bat` launches the app.
+## 2. Step 0 — verify Georgian speech before dubbing
 
-## 2. STEP 0 — verify Georgian speech BEFORE dubbing anything
+Georgian text-to-speech is a critical part of the result. Test the selected engine before dubbing a full film.
 
-Georgian TTS is the weakest link. Researched options:
-
-| Engine | Georgian | Voices | Notes |
+| Engine | Georgian support | Voices | Notes |
 |---|---|---|---|
-| `f5_georgian` (default) | yes — community fine-tune `tabluka90/georgian-f5-tts` of F5-TTS v1 | **unlimited**: one reference clip per voice | trained on Common Voice Georgian; quality unverified by me; check licences (F5-TTS base weights are non-commercial) |
-| `piper_ka` | yes — Piper `ka_GE` (Natia) | 1 female | fast, CPU friendly; needs `piper` binary + `.onnx` |
-| `mms_kat` | yes — `facebook/mms-tts-kat` | 1 | CC-BY-NC; random prosody |
-| XTTS-v2 | **no** (not in its language list) | – | not used |
+| `f5_georgian` (default) | Yes — community fine-tune `tabluka90/georgian-f5-tts` of F5-TTS v1 | Multiple, using one reference clip per voice | Trained on Common Voice Georgian. Quality has not been independently verified here. Check the model and base-model licences; F5-TTS base weights are non-commercial. |
+| `piper_ka` | Yes — Piper `ka_GE` (Natia) | One female voice | Fast and CPU-friendly; requires the Piper binary and `.onnx` model. |
+| `mms_kat` | Yes — `facebook/mms-tts-kat` | One voice | CC-BY-NC; prosody may sound unnatural. |
+| XTTS-v2 | No | — | Georgian is not in its supported language list and this project does not use it. |
 
-Run (examples need two short clips of clear Georgian speech you may use — e.g. CC0 Common Voice clips or your own voice —
-plus their exact transcripts):
+To test F5-TTS, prepare two short, clear Georgian speech clips that you have permission to use (for example, your own recordings or suitable CC0 Common Voice clips), together with exact transcripts:
 
-```
+```bat
 venv\Scripts\activate
 python scripts\verify_georgian_tts.py --ref-male m.wav --ref-male-text "..." --ref-female f.wav --ref-female-text "..."
 ```
 
-**Listen to the generated files** in `tts_check\`. If they are not intelligible Georgian, do not continue — change engine.
+Listen to the generated files in `tts_check\`. If the Georgian speech is not intelligible, do not continue with that engine; select another engine and test it.
 
 ## 3. First run
 
-1. **Settings → Models**: download Georgian F5-TTS, a Whisper model (small = fast) and NLLB-200 (translation).
-   Sizes are shown where known; models are *not* bundled.
-2. **Speaker model (optional but needed for multiple characters)**: create a free Hugging Face account, accept the terms at
-   `huggingface.co/pyannote/speaker-diarization-3.1` (and `segmentation-3.0`), create a read token, paste it in
-   Settings → Processing. Without it, everything is treated as ONE speaker (a warning is shown).
-3. **Settings → Voices → Add voice**: add at least one **male and one female** reference voice per character you need
-   (5–12 s clip + exact Georgian transcript). You must confirm you have the right to use each recording. Characters
-   never silently share a voice: if voices run out you get a warning and can assign manually (or enable sharing).
-4. Select a video → **Start Dubbing**. After translation the **Review** window lets you fix genders, voices and
-   Georgian text; **Continue** generates the voices and builds the video.
+1. Open **Settings → Models** and download the Georgian F5-TTS model, a Whisper model (the `small` model is a practical starting point), and NLLB-200 for translation. Models are not bundled in the slim source distribution; sizes are shown where known.
+2. **Optional speaker model:** for multi-character diarization, create a free Hugging Face account, accept the terms for [`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1) and its required [`segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0) dependency, create a read token, and enter it in Settings → Processing. Without this model, the application treats the audio as one speaker and shows a warning.
+3. Open **Settings → Voices → Add voice** and add at least one male and one female reference voice for the characters you need (a 5–12 second clip plus its exact Georgian transcript). Confirm that you have the right to use every recording. If voices run out, the application warns you; assign voices manually or enable sharing if appropriate.
+4. Select a video and choose **Start Dubbing**. After translation, use **Review** to correct genders, voice assignments, and Georgian text. Select **Continue** to generate voices and build the video.
 
-Output (in `output\`): `<name>_GE_DUBBED.mp4`, `<name>_GE.srt`, `<name>_original.srt`, `<name>_translation.txt`,
-`<name>_report.json`.
+The output folder is `output\`. Expected files include:
 
-## 4. How it works / design notes
+- `<name>_GE_DUBBED.mp4`
+- `<name>_GE.srt`
+- `<name>_original.srt`
+- `<name>_translation.txt`
+- `<name>_report.json`
 
-* Video stream is **copied** (no quality loss, original resolution/fps, fast). Georgian subtitles are a selectable soft
-  track; "burn subtitles" re-encodes with H.264 (needs FFmpeg with libass).
-* Long videos: audio extracted by FFmpeg streaming, ASR in 10-min overlapped chunks (each sentence kept once), per-line
-  TTS cache, dub track rendered block-by-block (measured peak RAM ≈ 115 MB for a 3-hour timeline).
-  Progress is checkpointed (`projects\<name>\state.json`); after a crash/cancel press Start Dubbing again and finished work is reused.
-* Sync: lines keep their original start; may use up to 1.5 s of following silence; otherwise sped up ≤ 1.3×
-  (pitch-preserving); still-too-long lines are kept **in full**, flagged in the report and warnings.
-* Background: Demucs (`--two-stems=vocals`) per 10-min chunk; if Demucs is missing the original track is kept quietly
-  under the dub (warning: some original speech stays faintly audible). Background ducks while the Georgian voice speaks.
-* Gender = median F0 heuristic (≈165 Hz split) with confidence; uncertain ones are highlighted. Diarization finds *voices*,
-  not character names.
-* Privacy: everything local; the only network use is model/YouTube downloads you start. Delete data via Projects / Settings.
-* Pause takes effect at the next safe point (between chunks/lines), not mid-FFmpeg call. Cancel kills FFmpeg immediately.
+## 4. How it works and design notes
+
+- **Video:** the video stream is copied without re-encoding, preserving the original resolution and frame rate. Georgian subtitles are added as a selectable soft subtitle track. Choosing **Burn subtitles** re-encodes with H.264 and requires FFmpeg with `libass`.
+- **Long videos:** audio is extracted through FFmpeg streaming. ASR runs in overlapping 10-minute chunks, with each sentence retained once. TTS output is cached per line, and the dub track is rendered in blocks. Measured peak RAM was approximately 115 MB for a three-hour timeline in the tested pipeline.
+- **Resume:** progress is checkpointed in `projects\<name>\state.json`. After a crash or stop, select **Start Dubbing** again; completed work is reused.
+- **Synchronization:** lines keep their original start time and may use up to 1.5 seconds of following silence. Otherwise, audio can be sped up by up to 1.3× with pitch preservation. Lines that still do not fit are kept in full and flagged in the report and warnings.
+- **Background audio:** Demucs can separate vocals with `--two-stems=vocals` in 10-minute chunks. If Demucs is unavailable, the original track is kept quietly under the dub, so some original speech may remain faintly audible. Background audio is ducked while Georgian speech plays.
+- **Gender:** a median fundamental-frequency (F0) heuristic uses an approximate 165 Hz split and confidence checks. Uncertain assignments are highlighted. Diarization identifies voices, not character names.
+- **Privacy:** processing is local by default. Network access is used for model downloads and YouTube downloads that you initiate, as well as configured online translation or AI services such as Gemini. Delete project data through Projects / Settings.
+- **Pause and cancel:** Pause takes effect at the next safe point between chunks or lines, not in the middle of an FFmpeg operation. Cancel terminates FFmpeg immediately.
 
 ## 5. Tests
 
-`python -m pytest tests`: probing/validation, extraction, chunk planning, mixing, export, sync/placement,
-block rendering, speaker assignment, gender estimator (synthetic voiced signals), voice assignment, SQLite, settings, and
-full end-to-end pipeline runs including cancel→resume, pause/resume, review edits, missing-voice errors and
-diarization failure — using **stand-in model backends** (tones/prefix text) so no AI model is exercised by the tests.
+Run the test suite with:
+
+```bash
+python -m pytest tests
+```
+
+The tests cover probing and validation, extraction, chunk planning, mixing, export, synchronization and placement, block rendering, speaker assignment, synthetic-signal gender estimation, voice assignment, SQLite, settings, and end-to-end pipeline scenarios. These include cancel/resume, pause/resume, Review edits, missing-voice errors, and diarization failure.
+
+The tests use stand-in model backends (tones and prefix text) so that they do not exercise real AI models.
 
 ## 6. Build an executable
 
-`build.bat` → `dist\GeoDubber\GeoDubber.exe` (folder build, **untested**). If PyInstaller misses a package, edit
-`geodubber.spec`. The most reliable way to distribute is the portable folder + `install.bat` / `start.bat`.
+Run:
 
-## 7. Status & limitations (honest list)
+```bat
+build.bat
+```
 
-Tested here (real FFmpeg/numpy code): see section 5. **Not tested** (could not run): faster-whisper, pyannote, NLLB, F5-TTS,
-Piper, MMS, Demucs, yt-dlp download, CUDA, the PySide6 GUI, `install.bat`/`build.bat`/PyInstaller, burn-in subtitles.
-Known risks: package version conflicts (requirements are minimums, not a verified set); F5 `infer()` argument names may differ
-by version; Georgian translation quality of NLLB and naturalness of Georgian TTS are unknown until you listen/read;
-gender heuristic fails for children/atypical voices; overlapping speech is not separated; no "estimated remaining time"
-for the whole job is shown (only per-stage, only when measurable); several models are non-commercial.
+The expected folder build is `dist\GeoDubber\GeoDubber.exe`. This build path has not been verified on every target Windows configuration. If PyInstaller misses a package, update `geodubber.spec`.
+
+For distribution, the portable folder together with `install.bat` and `start.bat` is the recommended approach.
+
+## 7. Status and limitations
+
+### Tested in the development environment
+
+The real FFmpeg and NumPy portions of the pipeline were tested. The automated test suite covers the application logic using stand-in AI-model backends.
+
+### Not verified in this build
+
+The following integrations could not be run in the authoring environment and must be verified on the target Windows PC:
+
+- faster-whisper
+- pyannote speaker diarization
+- NLLB translation
+- F5-TTS
+- Piper and MMS TTS
+- Demucs
+- yt-dlp downloads
+- CUDA acceleration
+- the PySide6 GUI
+- `install.bat`, `build.bat`, and PyInstaller packaging
+- subtitle burn-in
+- real Gemini, Whisper, Edge, and F5 service calls
+
+Known risks include package-version conflicts (requirements are minimum versions, not a fully verified lock), F5 `infer()` argument differences between library versions, unknown Georgian translation quality from NLLB until reviewed, unknown naturalness of generated Georgian speech until listened to, gender-estimation errors for children or atypical voices, and overlapping speech that is not separated. The application does not show a whole-job estimated remaining time; it shows stage progress and estimates only where measurable. Some model licences restrict commercial use.
 
 ## Troubleshooting
 
-Logs: `logs\geodubber.log`. "FFmpeg not found" → section 1.3. "Speaker model could not be loaded" → section 3.2.
-"No Georgian voice assigned" → add voices (section 3.3). Out of GPU memory → set GPU to CPU or Fast priority.
+- **FFmpeg not found:** follow step 1.3 and ensure `ffmpeg.exe` and `ffprobe.exe` are on `PATH` or in `tools\ffmpeg\bin\`.
+- **Speaker model could not be loaded:** follow step 3.2, accept the model terms, and verify the Hugging Face read token.
+- **No Georgian voice assigned:** add voices in Settings → Voices, as described in step 3.3.
+- **Out of GPU memory:** switch the processing device to CPU or select the Fast priority preset.
+- **Gemini key missing:** configure `GEMINI_API_KEY` or enter the key in Settings → Processing. Do not commit API keys to Git or include them in a public or shared archive.
+- **Translation quota exhausted:** wait until the quota resets, then use the v3.10 `--only-web` reset command above to retry web-fallback lines while preserving Gemini-translated lines.
+
+Application logs are written to `logs\geodubber.log`.
+
+---
+
+**Distribution note:** This is the slim source folder (approximately 1 MB). FFmpeg is not included. Keep an existing `tools\ffmpeg` folder or allow `install.bat` to install FFmpeg with winget. Do not delete your existing virtual environment when updating an installation; copy the source files over the existing project only after backing up project data.
