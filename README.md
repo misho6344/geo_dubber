@@ -6,18 +6,11 @@ This README describes the slim source distribution. It includes the application 
 
 > **Credential security:** Gemini API keys must be supplied through the `GEMINI_API_KEY` environment variable. The repository intentionally excludes the local `settings.json` file. If a key was ever committed, revoke it and create a replacement; deleting it from the latest version does not remove it from old Git history.
 
-## Online deployment (Render)
+## Online deployment (Oracle Cloud Always Free)
 
-The repository also includes a CPU-first online API (`online_api.py`) that calls the existing checkpointed `Pipeline`; it does not launch the PySide6 desktop UI. `Dockerfile`, `requirements-online.txt`, and `render.yaml` describe the hosted service. The API supports authenticated job creation, streamed video upload, optional subtitle-file upload, progress/history, translation review, pause/resume/cancel, speaker previews, and MP4 download.
+The repository includes a CPU-first online API (`online_api.py`) that calls the existing checkpointed `Pipeline` without launching the PySide6 desktop UI. The free-first deployment uses Docker Compose on an Oracle Cloud Always Free ARM VM; see [deploy/oracle-cloud/README.md](deploy/oracle-cloud/README.md). It does not require a paid Render GeoDubber service. The existing Admin Panel can remain on Render and connect to this API using `GEODUBBER_API_URL` and `GEODUBBER_API_TOKEN`.
 
-### Deploy
-
-1. Create the GeoDubber Render Blueprint from this repository and review its proposed resources before applying. The Blueprint requests one Standard Docker web service in Frankfurt with a 50 GB persistent disk; this is a paid CPU service, not a GPU service.
-2. Configure `GEODUBBER_API_TOKEN` as a random secret of at least 32 characters, and set `GEMINI_API_KEY` and (if using gated pyannote speaker models) `HF_TOKEN` as Render secrets. Do not commit any of these values.
-3. In the Admin Panel Render service, set `GEODUBBER_API_URL` to the GeoDubber service URL and set the same `GEODUBBER_API_TOKEN` value.
-4. Wait for `/healthz` to return `{"status":"ok"}`, then open Admin Panel → GeoDubber.
-
-The first online version is CPU-based. Whisper models and optional voice models download on first use and require persistent storage. F5-TTS, Demucs, and speaker diarization can consume substantial RAM/CPU and may need a larger service or dedicated GPU worker. A Render Standard CPU service does not provide a GPU. Performance and long-film completion time must be measured with real videos before relying on it for production. The API currently processes one job at a time to avoid memory exhaustion. Store only videos you have rights to process, and remove completed projects when no longer needed.
+The free online profile deliberately supports one job at a time, Faster-Whisper CPU transcription, Gemini translation when configured, and Edge Georgian TTS. F5-TTS, Piper/MMS model engines, and Demucs background separation are excluded from this low-resource deployment. The original audio remains under the dub at the fallback level; it is not separated into clean dialogue/music stems. The Oracle free VM has no GPU and long films may take many hours. Test with a short video before relying on it.
 
 ## Latest changes
 
