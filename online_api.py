@@ -22,6 +22,7 @@ from urllib.parse import unquote
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 LOG = logging.getLogger("geodubber.online")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -129,6 +130,18 @@ def _validate_options(raw: Any) -> dict:
         raise HTTPException(400, "თარგმნის სტილის აღწერა ზედმეტად გრძელია.")
     if bool(raw.get("preserveBackground", False)):
         raise HTTPException(400, "უფასო სერვერზე Demucs ფონური აუდიოს გამოყოფა გამორთულია.")
+    def number(name: str, default: float, low: float, high: float) -> float:
+        try:
+            value = float(raw.get(name, default))
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{name}: არასწორი რიცხვითი მნიშვნელობა.")
+        return max(low, min(high, value))
+    genders = {}
+    for i in range(1, 5):
+        gender = str(raw.get(f"speaker{i}Gender", "auto")).lower()
+        if gender not in {"auto", "male", "female"}:
+            raise HTTPException(400, "პერსონაჟის სქესის პარამეტრი არასწორია.")
+        genders[f"speaker{i}_gender"] = gender
     return {
         "priority": priority,
         "tts_engine": tts,
@@ -141,7 +154,13 @@ def _validate_options(raw: Any) -> dict:
         "original_subtitles": bool(raw.get("originalSubtitles", False)),
         "review_translation": bool(raw.get("reviewTranslation", True)),
         "burn_subtitles": bool(raw.get("burnSubtitles", False)),
-        "original_dialogue_volume": max(0.0, min(1.0, float(raw.get("originalDialogueVolume", 0.0) or 0.0))),
+        "original_dialogue_volume": number("originalDialogueVolume", 0.0, 0.0, 1.0),
+        "voice_volume": number("voiceVolume", 1.0, 0.0, 2.0),
+        "background_volume": number("backgroundVolume", 1.0, 0.0, 2.0),
+        "duck_background": bool(raw.get("duckBackground", True)),
+        "video_crf": int(number("videoCrf", 20, 14, 30)),
+        "audio_bitrate": str(raw.get("audioBitrate", "192k")) if str(raw.get("audioBitrate", "192k")) in {"128k", "160k", "192k", "256k", "320k"} else "192k",
+        **genders,
     }
 
 
@@ -187,6 +206,13 @@ def _run_job(job_id: str) -> None:
     settings.translation_batch = options["translation_batch"]
     settings.translation_style_note = options["translation_style_note"]
     settings.original_dialogue_volume = options["original_dialogue_volume"]
+    settings.voice_volume = options["voice_volume"]
+    settings.background_volume = options["background_volume"]
+    settings.duck_background = options["duck_background"]
+    settings.video_crf = options["video_crf"]
+    settings.audio_bitrate = options["audio_bitrate"]
+    for key in ("speaker1_gender", "speaker2_gender", "speaker3_gender", "speaker4_gender"):
+        setattr(settings, key, options[key])
     settings.hf_token = os.getenv("HF_TOKEN", "").strip()
     script_path = job.get("scriptPath")
     settings.imported_subtitles = str(script_path) if script_path else ""
@@ -672,6 +698,60 @@ def preview_audio(job_id: str, speaker_id: str, authorization: str | None = Head
     return FileResponse(path, media_type="audio/wav", filename=f"{speaker_id}.wav")
 
 
+
+@app.get("/v1/jobs/{job_id}/segments")
+def get_segments(job_id: str, authorization: str | None = Header(default=None)) -> dict:
+    _require_api_key(authorization)
+    job = _job_or_404(job_id)
+    with _lock:
+        pipeline = _pipelines.get(job_id)
+        if pipeline is not None:
+            segments = pipeline.state.get("segments") or []
+        else:
+            state_file = _job_dir(job_id) / "state.json"
+            if not state_file.is_file():
+                raise HTTPException(409, "სუბტიტრები ჯერ მზად არ არის.")
+            try:
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                segments = state.get("segments") or []
+            except (OSError, ValueError):
+                raise HTTPException(500, "პროექტის სუბტიტრების წაკითხვა ვერ მოხერხდა.")
+    return {"segments": [
+        {"id": int(x.get("id", 0)), "start": float(x.get("start", 0)),
+         "end": float(x.get("end", 0)), "text": str(x.get("text", "")),
+         "translation": str(x.get("translation", "")),
+         "speaker_id": str(x.get("speaker_id", ""))}
+        for x in segments
+    ]}
+
+
+@app.get("/v1/jobs/{job_id}/subtitles/{kind}")
+def download_subtitles(job_id: str, kind: str, authorization: str | None = Header(default=None)):
+    _require_api_key(authorization)
+    job = _job_or_404(job_id)
+    if job.get("status") != "completed":
+        raise HTTPException(409, "სუბტიტრები დასრულებული პროექტისთვის იქნება ხელმისაწვდომი.")
+    if kind not in {"georgian", "original"}:
+        raise HTTPException(404, "სუბტიტრების ტიპი ვერ მოიძებნა.")
+    state_file = _job_dir(job_id) / "state.json"
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        segments = state.get("segments") or []
+    except (OSError, ValueError):
+        raise HTTPException(404, "სუბტიტრები ვერ მოიძებნა.")
+    from core.subtitles import write_srt
+    key = "translation" if kind == "georgian" else "text"
+    target = _job_dir(job_id) / ("subtitles_ka.srt" if kind == "georgian" else "subtitles_original.srt")
+    write_srt(segments, target, key)
+    return FileResponse(target, media_type="application/x-subrip; charset=utf-8", filename=target.name)
+
+
 @app.exception_handler(HTTPException)
 async def http_error_handler(_request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
+
+
+# Serve the browser interface from the same origin as the authenticated API.
+WEB_ROOT = Path(__file__).resolve().parent / "web"
+if WEB_ROOT.is_dir():
+    app.mount("/", StaticFiles(directory=str(WEB_ROOT), html=True), name="geodubber-web")
