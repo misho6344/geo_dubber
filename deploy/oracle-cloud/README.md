@@ -5,7 +5,7 @@ This deployment keeps the Admin Panel on Render and runs the GeoDubber CPU API o
 ## Important limitations
 
 - Oracle Always Free availability is capacity-dependent. The advertised Ampere A1 Always Free allowance is up to 2 OCPUs and 12 GB RAM in total, subject to the current Oracle account terms and regional capacity.
-- This is CPU-only. It is intended for initial online testing and one job at a time, not fast 1–3 hour film processing. Measure actual runtimes before relying on it.
+- This is CPU-only and runs one job at a time. The online profile uses Faster-Whisper INT8 with the fast preset's `tiny` model and both allocated OCPU threads; Gemini translation and Edge Georgian TTS run over the network rather than consuming local inference CPU. This is the most CPU-efficient available profile for this free VM, but it cannot guarantee desktop-equivalent speed. Compare the same short sample on both systems before relying on it.
 - Keep the instance within Always Free limits. Oracle may reclaim idle Always Free compute under its published idle-instance policy. Always Free is not a contractual uptime guarantee.
 - You need an Oracle Cloud account and a hostname for HTTPS. You can use your own domain or the free IP-based hostname `YOUR_PUBLIC_IP.nip.io`; the nip.io service maps that name to the embedded IP address. Do not send the API token over plain HTTP.
 - Do not store secrets in GitHub. The Admin Panel and GeoDubber must use the exact same random API token.

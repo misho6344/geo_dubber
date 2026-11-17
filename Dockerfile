@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     GEODUBBER_HOME=/var/data/geodubber \
     HF_HOME=/var/data/geodubber/hf-cache \
+    GEODUBBER_CPU_THREADS=2 \
     OMP_NUM_THREADS=2 \
     OPENBLAS_NUM_THREADS=2 \
     MKL_NUM_THREADS=2 \

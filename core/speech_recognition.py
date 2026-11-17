@@ -16,6 +16,17 @@ from core.ffmpeg_utils import Control
 log = logging.getLogger(__name__)
 
 
+def _cpu_thread_count() -> int:
+    """Use the explicit server CPU budget when set; preserve desktop auto-tuning otherwise."""
+    configured = os.getenv("GEODUBBER_CPU_THREADS", "").strip()
+    if configured:
+        try:
+            return max(1, min(64, int(configured)))
+        except ValueError:
+            log.warning("Invalid GEODUBBER_CPU_THREADS=%r; falling back to automatic detection", configured)
+    return max(1, (os.cpu_count() or 4) - 1)
+
+
 # Whisper sometimes gets stuck and repeats one word or phrase ("word- word- word- ..."). Runs of 3+ repeats are
 # collapsed to a single occurrence; 2 repeats are kept because people really say "no, no".
 _REPEAT_RUN = re.compile(r"(?<![\w])([^\s\-,.!?]+)(?:[\s\-,]+\1(?![\w]))(?:[\s\-,]+\1(?![\w]))+", re.UNICODE)
@@ -49,7 +60,7 @@ class FasterWhisperRecognizer(Recognizer):
             except ImportError as e:
                 raise MissingDependencyError(str(e), "faster-whisper is not installed (run install.bat).")
             compute = "float16" if self.device == "cuda" else "int8"
-            threads = max(1, (os.cpu_count() or 4) - 1)
+            threads = _cpu_thread_count()
             try:
                 local = sub_dir("models") / f"faster-whisper-{self.model_name}"      # from the Settings download manager
                 src = str(local) if local.exists() else self.model_name

@@ -14,6 +14,7 @@ services:
       TORCH_HOME: /var/data/geodubber/torch-cache
       PORT: "10000"
       GEODUBBER_MAX_UPLOAD_BYTES: "8589934592"
+      GEODUBBER_CPU_THREADS: "2"
       OMP_NUM_THREADS: "2"
       OPENBLAS_NUM_THREADS: "2"
       MKL_NUM_THREADS: "2"
