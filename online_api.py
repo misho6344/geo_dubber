@@ -42,6 +42,7 @@ _jobs: dict[str, dict[str, Any]] = {}
 _controls: dict[str, Any] = {}
 _review_events: dict[str, threading.Event] = {}
 _pipelines: dict[str, Any] = {}
+_job_futures: dict[str, Any] = {}
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geodubber-job")
 
 
@@ -89,6 +90,45 @@ def _save_job(job_id: str) -> None:
     job["updatedAt"] = _now()
     safe = {k: v for k, v in job.items() if not k.startswith("_")}
     _write_json_atomic(_job_dir(job_id) / "job.json", safe)
+
+
+def _submit_job(job_id: str, target: Any, *args: Any) -> Any:
+    """Submit and retain the worker future so deletion can stop it safely."""
+    future = _executor.submit(target, *args)
+    with _lock:
+        _job_futures[job_id] = future
+    return future
+
+
+def _finish_delete_after_worker(job_id: str, future: Any | None) -> bool:
+    """Delete a project's files now, or after its active worker exits.
+
+    Returns True when cleanup was completed synchronously; otherwise a daemon
+    cleanup thread waits for the worker to stop before removing its files.
+    """
+    def cleanup() -> None:
+        if future is not None:
+            try:
+                future.result()
+            except Exception:
+                LOG.debug("Worker for deleted job %s finished with an exception", job_id, exc_info=True)
+        with _lock:
+            _job_futures.pop(job_id, None)
+            _controls.pop(job_id, None)
+            _review_events.pop(job_id, None)
+            _pipelines.pop(job_id, None)
+        shutil.rmtree(_job_dir(job_id), ignore_errors=True)
+        LOG.info("Deleted GeoDubber project %s", job_id)
+
+    if future is not None and not future.done():
+        threading.Thread(
+            target=cleanup,
+            name=f"geodubber-delete-{job_id[:8]}",
+            daemon=True,
+        ).start()
+        return False
+    cleanup()
+    return True
 
 
 def _require_api_key(authorization: str | None) -> None:
@@ -421,7 +461,7 @@ def startup() -> None:
             job["message"] = "სერვერის გადატვირთვის შემდეგ პროექტი რიგში დაბრუნდა." if job["status"] == "queued" else job.get("message", "")
             _jobs[job_id] = job
             if job["status"] == "queued":
-                _executor.submit(_run_job, job_id)
+                _submit_job(job_id, _run_job, job_id)
         except Exception:
             LOG.exception("Could not load GeoDubber job metadata: %s", metadata)
 
@@ -531,7 +571,7 @@ async def upload_video(job_id: str, request: Request, authorization: str | None 
         job["message"] = "ვიდეო რიგში დაემატა."
         _controls[job_id] = __import__("core.ffmpeg_utils", fromlist=["Control"]).Control()
         _save_job(job_id)
-        _executor.submit(_run_job, job_id)
+        _submit_job(job_id, _run_job, job_id)
     return _public_job(job)
 
 
@@ -653,7 +693,7 @@ async def import_video_url(
             "message": "ჩამოტვირთვა იწყება...",
         }
         _save_job(job_id)
-    _executor.submit(_run_url_import, job_id, source_url)
+        _submit_job(job_id, _run_url_import, job_id, source_url)
     return _public_job(job)
 
 
@@ -804,7 +844,7 @@ def resume_job(job_id: str, authorization: str | None = Header(default=None)) ->
             job["error"] = ""
             job["message"] = "პროექტი პროგრესის შენარჩუნებით რიგში დაბრუნდა."
             _save_job(job_id)
-            _executor.submit(_run_job, job_id)
+            _submit_job(job_id, _run_job, job_id)
         else:
             raise HTTPException(409, "პროექტის გაგრძელება ამ ეტაპზე შეუძლებელია.")
     return _public_job(job)
@@ -841,16 +881,47 @@ def cancel_job(job_id: str, authorization: str | None = Header(default=None)) ->
 
 @app.delete("/v1/jobs/{job_id}")
 def delete_job(job_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Cancel any active work and delete the project without a separate Stop action."""
     _require_api_key(authorization)
     job = _job_or_404(job_id)
     with _lock:
-        if job.get("status") in {"running", "paused", "queued", "review_required", "downloading", "cancelling"}:
-            raise HTTPException(409, "ჯერ გააუქმე მიმდინარე დამუშავება ან ჩამოტვირთვა, შემდეგ წაშალე პროექტი.")
+        future = _job_futures.get(job_id)
+        control = _controls.get(job_id)
+        event = _review_events.get(job_id)
+        status = str(job.get("status", ""))
+        worker_active = future is not None and not future.done()
+        active_status = status in {"running", "paused", "queued", "review_required", "downloading", "cancelling"}
+
+        if active_status or worker_active:
+            # Signal graceful cancellation before making the project disappear
+            # from the UI/API list. The worker's cancellation callbacks also
+            # treat a missing job as a cancellation request.
+            if control is not None:
+                try:
+                    control.cancel()
+                except Exception:
+                    LOG.exception("Could not signal cancellation for job %s", job_id)
+            if event is not None:
+                event.set()
+            job["status"] = "cancelled"
+            job["message"] = "წაშლის მოთხოვნა მიღებულია — მიმდინარე სამუშაო ჩერდება და ფაილები იშლება."
+            try:
+                _save_job(job_id)
+            except Exception:
+                LOG.exception("Could not persist delete state for job %s", job_id)
+
+        # Cancel a job that is still waiting in the single-worker queue. If it
+        # has already started, the cleanup thread waits for it to exit.
+        if future is not None and not future.done():
+            future.cancel()
         _jobs.pop(job_id, None)
-        _controls.pop(job_id, None)
-        _review_events.pop(job_id, None)
-    shutil.rmtree(_job_dir(job_id), ignore_errors=True)
-    return {"ok": True}
+
+    completed_now = _finish_delete_after_worker(job_id, future)
+    return {
+        "ok": True,
+        "deleting": not completed_now,
+        "message": "პროექტი წაიშალა." if completed_now else "მიმდინარე სამუშაო ავტომატურად ჩერდება; პროექტის ფაილები წაიშლება პროცესის უსაფრთხოდ დასრულებისთანავე.",
+    }
 
 
 @app.get("/v1/jobs/{job_id}/download")
