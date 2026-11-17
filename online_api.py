@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import shutil
+import secrets
 import threading
 import time
 import uuid
@@ -43,6 +44,7 @@ _controls: dict[str, Any] = {}
 _review_events: dict[str, threading.Event] = {}
 _pipelines: dict[str, Any] = {}
 _job_futures: dict[str, Any] = {}
+_download_tickets: dict[str, dict[str, Any]] = {}
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geodubber-job")
 
 
@@ -915,6 +917,9 @@ def delete_job(job_id: str, authorization: str | None = Header(default=None)) ->
         if future is not None and not future.done():
             future.cancel()
         _jobs.pop(job_id, None)
+        for ticket, record in list(_download_tickets.items()):
+            if record.get("jobId") == job_id:
+                _download_tickets.pop(ticket, None)
 
     completed_now = _finish_delete_after_worker(job_id, future)
     return {
@@ -922,6 +927,59 @@ def delete_job(job_id: str, authorization: str | None = Header(default=None)) ->
         "deleting": not completed_now,
         "message": "პროექტი წაიშალა." if completed_now else "მიმდინარე სამუშაო ავტომატურად ჩერდება; პროექტის ფაილები წაიშლება პროცესის უსაფრთხოდ დასრულებისთანავე.",
     }
+
+
+@app.post("/v1/jobs/{job_id}/download-ticket")
+def create_download_ticket(job_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """Create a short-lived URL so the browser can download large MP4s directly.
+
+    This avoids buffering the complete video in browser memory and avoids relying
+    on a synthetic click after a multi-gigabyte fetch.
+    """
+    _require_api_key(authorization)
+    job = _job_or_404(job_id)
+    if job.get("status") != "completed":
+        raise HTTPException(409, "ფინალური ვიდეო ჯერ მზად არ არის.")
+    path = Path(job.get("videoPath") or "")
+    project = _job_dir(job_id).resolve()
+    if not path.is_file() or not path.resolve().is_relative_to(project):
+        raise HTTPException(404, "ფინალური ვიდეო ვერ მოიძებნა.")
+
+    now = time.time()
+    ticket = secrets.token_urlsafe(32)
+    with _lock:
+        expired = [key for key, value in _download_tickets.items() if value.get("expiresAt", 0) <= now]
+        for key in expired:
+            _download_tickets.pop(key, None)
+        _download_tickets[ticket] = {"jobId": job_id, "expiresAt": now + 900}
+    return {"url": f"/v1/download/{ticket}", "filename": path.name, "expiresIn": 900}
+
+
+@app.get("/v1/download/{ticket}")
+def download_with_ticket(ticket: str):
+    """Stream the MP4 using an expiring, unguessable ticket (no API token in URL)."""
+    now = time.time()
+    with _lock:
+        record = _download_tickets.get(ticket)
+        if not record:
+            raise HTTPException(404, "ჩამოტვირთვის ბმული არასწორია ან ვადაგასულია.")
+        if record.get("expiresAt", 0) <= now:
+            _download_tickets.pop(ticket, None)
+            raise HTTPException(410, "ჩამოტვირთვის ბმულს ვადა გაუვიდა. დააჭირე Download Output-ს ხელახლა.")
+        job = _jobs.get(record.get("jobId", ""))
+        if not job or job.get("status") != "completed":
+            raise HTTPException(404, "პროექტი ან მისი საბოლოო ვიდეო ვერ მოიძებნა.")
+        job_id = job["id"]
+        path = Path(job.get("videoPath") or "")
+    project = _job_dir(job_id).resolve()
+    if not path.is_file() or not path.resolve().is_relative_to(project):
+        raise HTTPException(404, "ფინალური ვიდეო ვერ მოიძებნა.")
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename=path.name,
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @app.get("/v1/jobs/{job_id}/download")
