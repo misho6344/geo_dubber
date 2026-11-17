@@ -19,7 +19,7 @@ from core import video_loader as VL
 from core.audio_io import wav_duration
 from core.audio_mixer import mix_audio
 from core.audio_synchronizer import apply_speed, plan_placements, render_dub_track
-from core.background_separator import Separator, create_separator
+from core.background_separator import FallbackSeparator, Separator, create_separator
 from core.errors import CancelledError, GeoDubberError, VoiceUnavailableError
 from core.ffmpeg_utils import Control
 from core.georgian_tts import TTSBackend, create_backend, synthesize_cached
@@ -76,7 +76,8 @@ def default_backends(settings: Settings, project_dir: Path) -> tuple[Backends, s
         diarizer=(SD.PyannoteDiarizer(device, settings.hf_token) if settings.auto_speakers else SD.SingleSpeakerDiarizer()),
         translator=NLLBTranslator(settings.translation_model, device, pr["nllb_beam"], settings.translation_batch),
         tts=create_backend(settings.tts_engine, settings, device),
-        separator=create_separator(device, settings.resolved_temp_dir(), segment=str(pr.get("demucs_segment") or "8")),
+        separator=(create_separator(device, settings.resolved_temp_dir(), segment=str(pr.get("demucs_segment") or "8"))
+                  if settings.preserve_background else FallbackSeparator()),
     )
     return be, f"{device} {note}".strip()
 
