@@ -6,6 +6,12 @@ This README describes the slim source distribution. It includes the application 
 
 > **Credential security:** Gemini API keys must be supplied through the `GEMINI_API_KEY` environment variable. The repository intentionally excludes the local `settings.json` file. If a key was ever committed, revoke it and create a replacement; deleting it from the latest version does not remove it from old Git history.
 
+## Browser interface
+
+A browser-based interface is included in `web/index.html` and is served by `online_api.py` from the same origin as the API. Open the API root URL to use the web app. It includes video/script upload, processing options, stage progress, pause/resume/cancel, project history, translation and speaker review, speaker audio previews, MP4 download, and SRT export. The API token is entered in the browser and held only in the current tab session.
+
+The web UI follows the desktop layout and workflow, but the current lightweight online profile is not feature-identical to the Windows desktop build. It currently uses CPU processing and Edge Georgian TTS; it does not provide the desktop model downloader, F5/Piper/MMS engines, custom reference-voice recording, YouTube URL import, or Demucs background separation. These are server/backend limitations, not merely hidden UI controls.
+
 ## Online deployment (Oracle Cloud Always Free)
 
 The repository includes a CPU-first online API (`online_api.py`) that calls the existing checkpointed `Pipeline` without launching the PySide6 desktop UI. The free-first deployment uses Docker Compose on an Oracle Cloud Always Free ARM VM; see [deploy/oracle-cloud/README.md](deploy/oracle-cloud/README.md). It does not require a paid Render GeoDubber service. The existing Admin Panel can remain on Render and connect to this API using `GEODUBBER_API_URL` and `GEODUBBER_API_TOKEN`.
