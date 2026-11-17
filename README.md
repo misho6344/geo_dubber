@@ -1,293 +1,389 @@
 # GeoDubber
 
-**GeoDubber** is a Windows desktop application that dubs video dialogue into Georgian.
+**GeoDubber turns video dialogue into Georgian speech.** It provides a Windows desktop application and a browser-based online interface backed by a FastAPI processing service.
 
-This README describes the slim source distribution. It includes the application code and installation scripts; large AI models and FFmpeg binaries are not bundled.
+The project reuses one checkpointed processing pipeline. The desktop and online profiles have different runtime capabilities, so this document describes them separately.
 
-> **Credential security:** Gemini API keys must be supplied through the `GEMINI_API_KEY` environment variable. The repository intentionally excludes the local `settings.json` file. If a key was ever committed, revoke it and create a replacement; deleting it from the latest version does not remove it from old Git history.
+## Contents
 
-## Browser interface
+- [What GeoDubber does](#what-geodubber-does)
+- [Desktop and online profiles](#desktop-and-online-profiles)
+- [Online workflow](#online-workflow)
+- [Input files and subtitles](#input-files-and-subtitles)
+- [Windows desktop installation](#windows-desktop-installation)
+- [Run the online API on Windows](#run-the-online-api-on-windows)
+- [Connect the Admin Panel](#connect-the-admin-panel)
+- [Deploy on Oracle Cloud](#deploy-on-oracle-cloud)
+- [Configuration and secrets](#configuration-and-secrets)
+- [Storage and backups](#storage-and-backups)
+- [Troubleshooting](#troubleshooting)
+- [Tests and project layout](#tests-and-project-layout)
+- [Known limitations](#known-limitations)
 
-A browser-based interface is included in `web/index.html` and is served by `online_api.py` from the same origin as the API. Open the API root URL to use the web app. It includes video/script upload, processing options, stage progress, pause/resume/cancel, project history, translation and speaker review, speaker audio previews, MP4 download, and SRT export. The API token is entered in the browser and held only in the current tab session.
+## What GeoDubber does
 
-The web UI follows the desktop layout and workflow. Background audio uses the same separator selection as the Windows desktop pipeline: Demucs is used when installed, otherwise the original soundtrack is mixed quietly under the Georgian dub with ducking. The online profile still uses CPU processing and Edge Georgian TTS; it does not provide the desktop model downloader, F5/Piper/MMS engines, custom reference-voice recording, or YouTube URL import.
+GeoDubber is designed to create a Georgian-dubbed version of a video while retaining the original video track.
 
-## Online deployment (Oracle Cloud Always Free)
+Depending on the selected profile and configuration, the processing pipeline can:
 
-The repository includes a CPU-first online API (`online_api.py`) that calls the existing checkpointed `Pipeline` without launching the PySide6 desktop UI. The free-first deployment uses Docker Compose on an Oracle Cloud Always Free ARM VM; see [deploy/oracle-cloud/README.md](deploy/oracle-cloud/README.md). It does not require a paid Render GeoDubber service. The existing Admin Panel can remain on Render and connect to this API using `GEODUBBER_API_URL` and `GEODUBBER_API_TOKEN`.
+1. Extract audio from a video with FFmpeg.
+2. Recognize dialogue with Faster-Whisper.
+3. Detect speaker turns and estimate perceived voice gender.
+4. Translate dialogue into Georgian, with contextual information for names, recurring expressions, jokes, and tone.
+5. Let the user review translated lines, speaker assignments, and voices before synthesis.
+6. Generate Georgian speech.
+7. Separate dialogue from music and effects when a compatible separator is available.
+8. Fit generated speech to the original timing, mix the audio, and export an MP4.
 
-The online profile deliberately supports one job at a time, Faster-Whisper CPU transcription, Gemini translation when configured, and Edge Georgian TTS. Background separation follows the desktop code: install the CPU-compatible PyTorch build and Demucs to separate music/effects from vocals; if Demucs is unavailable or fails, the pipeline falls back to the original soundtrack at a lower level under the dub. On a Windows CPU host, install PyTorch first with `pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu`, then run `pip install -r requirements-online.txt` in the online API virtual environment. Demucs adds a large dependency/model download and can be slow on low-power CPUs; test with a short clip first. F5-TTS, Piper/MMS model engines remain excluded from this online profile.
+The pipeline saves project state and completed work so a stopped or interrupted job can often be resumed without repeating every completed stage.
 
-## Latest changes
+## Desktop and online profiles
 
-### v3.10
-
-- **No more waiting on an exhausted daily quota.** When Gemini reports that a quota will reset in hours (a server delay longer than 30 minutes), the translator stops trying that model immediately. Each model is requested at most once, untranslated lines are left empty, and the log records why. Previous versions could wait 120 seconds per round across six rounds per batch.
-- After the quota resets, run:
-
-  ```bash
-  python scripts/reset_translations.py "projects/<project>/state.json" --only-web
-  ```
-
-  Then select **Start Dubbing**. Lines already translated by Gemini are preserved.
-- Short quota interruptions of a few seconds are still retried as before.
-
-### v3.9
-
-- **Pause, Stop, and Cancel are separate actions.**
-  - **Pause / Resume** pauses processing and continues it later.
-  - **Stop (keep progress)** stops the run while preserving completed work. Select **Start Dubbing** to resume.
-  - **Cancel and delete project** stops a running job and deletes the project, its work files, dubbed video, subtitles, report, and project-list entry. **The original video is never deleted.** A downloaded YouTube video is treated as the original and is kept. Stop and Cancel both request confirmation.
-- Cancel and delete is available whenever a project is running or loaded, including after Preview Translation.
-
-### v3.8
-
-- **Retired model removed.** `gemini-2.5-flash` returned 404 (`no longer available to new users`) in the tested API environment and was removed from both model lists, avoiding a failed request and unnecessary wait on every round.
-- A daily quota error on `gemini-3.8-flash` (429 with a cooldown of several hours) is not treated as a general application failure; the other configured models may still work.
-
-### v3.7
-
-- **Gemini model names corrected.** `gemini-flash-latest` returned 404 in the tested API environment, so speaker analysis skipped it. The configured model order was updated based on the models returned by `models.list` for the tested key:
-  - Translation: `gemini-3.5-flash-lite`, `gemini-3.5-flash`, `gemini-2.5-flash`, `gemini-3.8-flash`.
-  - Speaker analysis: the same configured models, with the last model ordered differently.
-- A 429 response means that model's quota is exhausted for the key; a 503 response is treated as temporary.
-- Tests were updated to use the model list: 101 tests passed; the two known v1 failures remained.
-
-### v3.6
-
-- **Pitch-check correction.** The v3.5 check could move too many lines when pitch tracking made octave errors, such as measuring a woman's line at half its actual pitch.
-- A line at half or double its character's pitch (within 6%) is now kept with that character.
-- If a check would move more than 20% of measured lines, no voice assignments are changed and a warning is shown.
-- Without a Gemini key, character genders are still estimated from pitch. Add the key in Settings and rerun, or review the samples manually.
-
-### v3.5
-
-- **Voice assignments are checked across the whole film.** Previously, each line was evaluated independently, allowing one incorrect line to send a character to the wrong gendered voice. The updated checks:
-  - Measure each line's pitch (up to three seconds per line).
-  - Move a line when its pitch clearly contradicts its character's gender; among characters of the same gender, move it only when it is clearly closer to another character's pitch.
-  - Change a character's gender only when at least 75% of its voiced speech clearly indicates the other gender. This is reported as a warning. A gender set manually is never changed.
-  - Assign unclear lines using nearby clear lines, reducing the chance that one unclear line flips the assignment.
-- **The five-second gender sample contains one character only.** It no longer joins two lines across another character's intervening speech.
-- **Real-audio testing note:** the pitch logic was covered by synthetic-voice tests, not a full real-film listening test. The test suite had 99 tests, with the same two known v1 failures. After updating, run Start Dubbing again so speakers are detected again, then listen to each character's sample in Review.
-
-### v3.4
-
-- **Translation retries temporary Gemini errors.** HTTP 503 (high demand), 504 (timeout), and 500 errors were not retried in v3.3. They now trigger a wait (10 seconds or the server-provided delay), model cooldown, and retry, like quota-related errors.
-- The speaker-detection log discussed for this release came from an older build; v3.3 or later includes retries for busy models.
-
-### v3.3
-
-- **Gemini speaker detection can recover from a busy model.** A 503 high-demand or 429 response is retried on the same model after 5, 15, and 30 seconds. Cancellation remains available during retries, then the next model is tried.
-- Warnings list reasons from all attempted models. The model order in this release was `gemini-flash-latest`, `gemini-3.5-flash-lite`, and `gemini-3.8-flash`.
-
-### Gemini credentials
-
-- Gemini credentials are read only from the `GEMINI_API_KEY` process environment variable.
-- The key is not stored in `settings.json`, displayed in the Settings window, or committed to Git.
-- On Windows, run `setx GEMINI_API_KEY "YOUR_NEW_KEY"` in Command Prompt, then close and reopen the application so it inherits the new variable.
-- On Render, add an Environment Variable named `GEMINI_API_KEY` in the service's Environment settings. Do not put the value in source code, README files, or GitHub.
-
-### v3.1 fixes from a real run log
-
-- **Missing Gemini key:** when Gemini could not initialize, the run used web translation fallback for 93 lines and pitch-only gender detection. The application now warns about this. Set the `GEMINI_API_KEY` environment variable and restart the application:
-
-  ```cmd
-  setx GEMINI_API_KEY "your-key"
-  ```
-
-  After setting the key, restart the app and rerun the relevant translations with `scripts/reset_translations.py` if needed.
-- **Demucs segment-length error:** the quality preset used a maximum segment length of 8, but Demucs reported a maximum of 7.8. The preset was changed to 7 and the separator clamps the value to 7.8.
-- **Timing fit** is skipped with a warning when no Gemini key is configured, because Gemini is needed to rewrite lines.
-
-## v3 — Translation context, timing fit, and quality control
-
-| Area | What it does | Settings |
+| Capability | Windows desktop | Browser / online API |
 |---|---|---|
-| Context-aware translation | Batches run in order. Each batch receives the previous eight English-to-Georgian pairs to help maintain names, recurring jokes, and tone. A film-specific style note is also included in the prompt. | `translation_sequential`, `translation_context_lines`, `translation_style_note` |
-| Idioms and jokes | The model is asked to use a Georgian expression with the same effect. Uncertain lines are tagged as `idiom`, `joke`, `pun`, `culture`, or `unclear`; the tag is stored as `tr_note` for Review. | — |
-| Timing fit | After voice generation, each line's actual audio duration is compared with its available window. Lines that do not fit may be rewritten shorter by Gemini while preserving meaning, then voiced again. Only changed lines are regenerated. | `timing_fit_rounds` (`0` disables the stage) |
-| Silence trimming | Removes dead air at the start and end of generated lines so pauses better follow the original rhythm and the dub drifts less. | `trim_clip_silence` |
-| Automatic quality control | Checks clipping, silent clips, clips that are too short, same-speaker overlap, and spill longer than 0.3 seconds into another speaker's line. Results are stored under `qc` in `state.json` and shown as warnings. | `voice_qc` |
+| User interface | PySide6 desktop application | Browser interface served by FastAPI |
+| Processing device | CPU or supported NVIDIA CUDA setup | CPU profile |
+| Speech recognition | Faster-Whisper; model selected in settings | Faster-Whisper CPU profile |
+| Translation | Local/configured translation backends and Gemini when configured | Gemini-based translation when configured |
+| Georgian speech | Configurable desktop engines, including F5 Georgian, Piper and MMS options | Edge Georgian TTS |
+| Speaker analysis | Local diarization/pitch tools and Gemini when configured | Gemini analysis when configured, with local fallback |
+| Background separation | Demucs when installed and configured | Demucs when available; otherwise a quieter original-track fallback |
+| Timed script import | Supported by the processing pipeline | SRT, VTT or TXT |
+| Video URL import | Depends on the desktop workflow | YouTube HTTPS, direct public HTTPS video URLs and BitTorrent Magnet links |
+| Subtitle output | Configurable subtitle files and optional video subtitle track | No subtitles are embedded in the final MP4 and no SRT sidecar files are exported |
+| Concurrent jobs | Desktop workflow | One online job at a time |
 
-**Not included in v3:** sentence-level splitting of long lines with inserted pauses, and automatic listening checks. Quality control checks audio levels and timing, not whether the spoken content is correct. These tasks require imported English subtitles (`imported_subtitles`) or a listening pass in Review.
+The online API deliberately uses a smaller runtime profile. It does not expose the desktop model downloader, desktop-only TTS engines, custom reference-voice recording, or every desktop setting.
 
-New tests include `tests/test_v3_quality.py` for quality functions, notes, context memory, and shortening, plus a timing-fit pipeline test. At that release stage, the suite contained 81 tests; two older speaker-threshold tests were still failing as they had in v1.
+## Online workflow
 
-## v2 — Earlier improvements
+The browser interface is located in `web/index.html` and is served by `online_api.py` from the same origin. Open the API root URL in a browser to use it.
 
-Version 2 was built after reviewing a real Mickey 17 dubbing run.
+The online workflow is:
 
-| Problem found in the v1 run | What v2 changed |
+1. Enter the API token when prompted.
+2. Create a project and either upload a video or provide a supported source URL.
+3. Optionally upload a timed SRT, VTT or TXT script before uploading the video.
+4. Choose processing options, including speed/quality priority, translation batch size, speaker count, voice gender preferences, and audio mix settings.
+5. Wait for audio extraction, speech recognition (unless a timed script is supplied), speaker detection, and translation.
+6. Review the Georgian lines and detected speakers. Listen to the original speaker samples, inspect representative video frames, correct speaker genders, and assign available Georgian voices.
+7. Continue to voice generation, background handling, synchronization, audio mixing, and MP4 export.
+8. Download the completed MP4 from the project.
+
+The project list supports reopening jobs. The online interface provides pause/resume, stop while preserving the project checkpoint, and project deletion. Deleting an active project requests cancellation; the project disappears from the list immediately, and its files are cleaned up after the active worker has stopped safely.
+
+### Online source formats
+
+Video uploads support:
+
+- MP4
+- MKV
+- AVI
+- MOV
+- WEBM
+
+The default maximum video size is 8 GB. It can be changed with `GEODUBBER_MAX_UPLOAD_BYTES`.
+
+The online URL importer supports:
+
+- A single YouTube video over HTTPS (not playlists).
+- A direct public HTTPS URL ending in a supported video extension.
+- A BitTorrent Magnet URI. GeoDubber selects one main supported video file from the torrent; it skips unrelated extras such as samples, subtitles and archives.
+
+URL imports are limited by the same default 8 GB maximum. Magnet downloads require working peers/seeders and public trackers. Direct HTTPS imports reject private/local network destinations. Only import videos that you own or are authorized to process.
+
+### Progress and downloads
+
+The online UI shows overall and per-stage progress. An estimated remaining time is shown when enough timing data is available; it is an estimate, not a guarantee.
+
+The MP4 download uses a short-lived download ticket so the browser can stream the file without first buffering the entire video in JavaScript memory. If a download link expires, press the download button again to create a new one.
+
+## Input files and subtitles
+
+### Importing a timed script
+
+An SRT, VTT or TXT file can be uploaded as the project's timed dialogue script. Upload it before the video file.
+
+- If the imported text is already Georgian, translation can be skipped and the text is used for voice generation.
+- If the imported text is in another language, it is used as the source script for Georgian translation.
+- Imported timecodes guide the placement of the generated Georgian dialogue.
+
+The online API accepts script files up to 20 MB.
+
+### Subtitle output is different from script input
+
+For the **online profile**, subtitle files are input data only. They are not burned into the video, are not added as a selectable subtitle track, and separate SRT files are not exported. The online final MP4 contains the video and the Georgian dubbed audio without visible captions.
+
+The **desktop profile** has its own subtitle settings. Depending on those settings, it can export SRT files and add a selectable or burned subtitle track.
+
+## Windows desktop installation
+
+### Requirements
+
+- Windows 10 or Windows 11.
+- Python 3.11.
+- FFmpeg and FFprobe.
+- An internet connection for package/model downloads and any configured online AI services.
+- Enough free disk space for videos, models, temporary audio, and output files.
+
+An NVIDIA GPU is optional. The installer checks for NVIDIA tooling and installs a CUDA-enabled PyTorch build when it detects an NVIDIA GPU; otherwise it installs the CPU build. CPU processing can be considerably slower.
+
+### Install
+
+1. Install Python 3.11 from [python.org](https://www.python.org/downloads/) and enable **Add Python to PATH**.
+2. Extract or clone the repository.
+3. Run `install.bat`.
+4. If FFmpeg is still not found, install a Windows FFmpeg build and add `ffmpeg.exe` and `ffprobe.exe` to your PATH, or place them in `tools\ffmpeg\bin\`.
+5. Run `start.bat`.
+
+### First desktop run
+
+1. Open **Settings → Models** and download the models needed by your selected ASR, translation, speaker-analysis, and TTS engines. Model weights are not bundled in the slim source distribution.
+2. Configure the Gemini key through the `GEMINI_API_KEY` environment variable if Gemini features are required.
+3. If using a gated Hugging Face speaker model, accept the model provider's terms and configure a read token in the appropriate local settings.
+4. Open **Settings → Voices** and configure the Georgian voices required by your selected TTS engine. For reference-voice engines, use audio samples and transcripts that you have permission to use.
+5. Load a short test video, run the pipeline, and listen to the result before processing a full-length film.
+6. Check the Review stage and correct translation, speaker gender, and voice assignment before continuing.
+
+The desktop output directory is configurable. The default project output folder is `output\`.
+
+### Desktop speed presets
+
+The bundled desktop presets adjust recognition model size, Whisper beam size, TTS concurrency, and video encoding settings.
+
+| Preset | ASR model | Whisper beam | TTS workers |
+|---|---:|---:|---:|
+| Fast | tiny | 1 | 8 |
+| Balanced | base | 1 | 6 |
+| Quality | small | 5 | 4 |
+
+Actual speed depends on the computer, video length, selected models, network/API response times, and whether background separation is enabled.
+
+## Run the online API on Windows
+
+This mode runs the browser interface and API on a Windows computer. It is useful for a personal processing host. Keep the API bound to localhost and expose it remotely only through an HTTPS reverse proxy or a trusted private tunnel.
+
+### 1. Create the online virtual environment
+
+Run these commands from the repository root in PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip wheel
+```
+
+### 2. Install CPU PyTorch and online requirements
+
+For a CPU-only Windows host:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -r requirements-online.txt
+```
+
+If the machine has a supported NVIDIA setup, install the matching PyTorch build from the official PyTorch instructions instead of the CPU wheel. PyTorch is installed separately because the correct wheel depends on the host.
+
+Install FFmpeg and FFprobe and make sure both commands are available in PowerShell:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+### 3. Configure the online service
+
+Set a persistent data folder and the required API token. The token must be at least 32 characters long. Set Gemini if you want Gemini translation and speaker analysis. HF_TOKEN is optional and is used only when a gated Hugging Face model is configured.
+
+For the current PowerShell session, set the values as follows:
+
+```powershell
+$env:GEODUBBER_HOME = "$PWD\data"
+$env:GEODUBBER_API_TOKEN = "replace-with-a-long-random-secret"
+$env:GEMINI_API_KEY = "your-gemini-key"
+# Optional:
+$env:HF_TOKEN = "your-hugging-face-read-token"
+```
+
+For a persistent Windows user environment, use Windows Environment Variables or PowerShell's `[Environment]::SetEnvironmentVariable`. After changing persistent environment variables, restart the terminal or the background service so it receives the updated values.
+
+Never commit secrets, paste them into source code, or put them in this README.
+
+### 4. Start and verify the API
+
+Start the service from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn online_api:app --host 127.0.0.1 --port 10000
+```
+
+Open the browser interface at:
+
+```text
+http://127.0.0.1:10000/
+```
+
+Check basic health:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:10000/healthz"
+```
+
+The health endpoint does not require the API token. The authenticated status endpoint does:
+
+```powershell
+$token = $env:GEODUBBER_API_TOKEN
+Invoke-RestMethod "http://127.0.0.1:10000/v1/status" -Headers @{ Authorization = "Bearer $token" }
+```
+
+Expected health response:
+
+```json
+{"status":"ok","service":"geodubber-api"}
+```
+
+For remote access, use HTTPS through a reverse proxy or a trusted private tunnel. Do not expose the raw API port 10000 directly to the public internet.
+
+## Connect the Admin Panel
+
+The Admin Panel is a separate application and can remain hosted on Render. GeoDubber's online API runs on the processing host. Configure the Admin Panel service with these environment variables:
+
+| Variable | Value |
 |---|---|
-| Gemini free-tier quota errors caused about 3,700 HTTP 429 responses in the logs. About 140 Gemini answers succeeded, while roughly 530 lines fell back to a word-level web translator. | Lines are sent in batches (one request per 16 lines, JSON in and out). Quota errors wait for the server's retry delay, skip models that are cooling down, and retry. Web fallback is flagged with `mt_source = web` and shown as a warning. |
-| Answers were accepted if they contained a Georgian letter, allowing English words and missing lines to pass. | Each line is validated: it must exist, contain Georgian, avoid stray English words unless the glossary allows them, and receive one shorter retry when it is far too long for its timing window. |
-| Names were inconsistent because the glossary was not fully applied to the English source. | `glossary.txt` contains `Source = Georgian` pairs and is supplied to the model in the prompt. |
-| Failed translations remained in English and were read by a Georgian voice. | Failed lines are left empty (silence) and can be translated again on the next run. A warning reports how many lines failed. |
-| Whisper repeated words in loops, and the quality preset used beam size 1. | Repetition runs of three or more are collapsed; Whisper uses temperature fallback; the quality preset uses beam size 5. |
-| Edge had one male and one female Georgian voice, so characters of the same gender shared a voice. | Optional Edge voice variants use small pitch and speed changes. Disable them with `edge_character_variants: false`. Listen to variants before relying on them. |
-| `voices/giorgi/voice.json` and `voices/nino/voice.json` used Georgian quotation marks that are invalid in JSON, so the reference voices were silently dropped. | The JSON was corrected. Reference audio (`ref.wav` or `ref.mp3`) is not included in the ZIP; restore it to the appropriate folders when using `f5_georgian`. |
-| Gemini gender decisions were not checked against measured pitch. | A pitch cross-check warns when Gemini labels a voice male with a median pitch of 200 Hz or higher, or female with a median pitch of 140 Hz or lower. The character is also marked in Review. |
-| Hard-coded Edge voice preferences broke when more voices were added. | Hard-coded preferences such as `edge_ka_giorgi` and `edge_ka_eka` were removed; voices of the correct gender are selected in list order. |
-| A live Gemini API key had been stored in `settings.json`. | The key was removed from the shipped file. Set `GEMINI_API_KEY` instead. If a key was shared or uploaded, revoke it and create a new one. |
+| `GEODUBBER_API_URL` | The HTTPS base URL of the online GeoDubber API, without a trailing slash |
+| `GEODUBBER_API_TOKEN` | The same secret token configured on the GeoDubber API host |
 
-### Re-dub a project with v2 or later translation logic
+After saving the environment variables, allow the Admin Panel service to redeploy. The Admin Panel URL does not move when the processing host changes; only its GeoDubber API URL needs to be updated.
 
-1. Configure `GEMINI_API_KEY` as an environment variable. The Settings window does not accept or store API keys.
-2. Optionally edit `glossary.txt` to add the names used in the film.
-3. Clear old translations so they can be regenerated:
+Do not place the API token in frontend source files, public repositories, or browser URLs. The online API uses Bearer-token authentication for its protected endpoints.
 
-   ```bash
-   python scripts/reset_translations.py "projects/<project>/state.json"
-   ```
+## Deploy on Oracle Cloud
 
-   Add `--only-web` to redo only lines that came from the web fallback. A backup named `state.json.bak` is written.
-4. Select **Start Dubbing**. Review warnings and check flagged lines and character genders in Review before continuing.
+A Docker Compose deployment guide for an Oracle Cloud Always Free Ampere ARM VM is maintained separately:
 
-### v2 settings
+[Oracle Cloud deployment guide](deploy/oracle-cloud/README.md)
 
-These settings can be edited in `settings.json` (they were not available in the GUI at the time of v2):
+That deployment uses the included `Dockerfile`, `docker-compose.yml` and Caddy reverse-proxy configuration. It keeps the Admin Panel on Render and runs the GeoDubber API on the VM. Oracle Always Free capacity and usage policies can change, and free resources do not provide a guaranteed uptime service.
 
-- `translation_glossary_file` — glossary path; an empty value uses `glossary.txt` in the application folder.
-- `edge_character_variants` — `true` (default) adds pitch/speed variants for Edge voices; `false` keeps only the two standard voices.
+## Configuration and secrets
 
-### v2 test status
+### Online API environment variables
 
-At the v2 release stage, `python -m pytest tests` ran 71 tests: 69 passed. Two tests in `tests/test_speakers_sync.py` (gender confidence thresholds) had already been failing in v1 and were unchanged. Three v1 expectations that no longer matched the code were corrected: presets (fast = tiny, quality = small), Gemini-free diarization fallback, and a test that no longer depends on thread order.
+| Variable | Purpose |
+|---|---|
+| `GEODUBBER_API_TOKEN` | Required Bearer token; use a random secret of at least 32 characters |
+| `GEODUBBER_HOME` | Root folder for online projects, cache and persistent data |
+| `GEMINI_API_KEY` | Optional Gemini credential for translation and speaker analysis |
+| `HF_TOKEN` | Optional Hugging Face read token for gated model access |
+| `GEODUBBER_MAX_UPLOAD_BYTES` | Maximum video upload/import size in bytes; default is 8 GiB |
+| `GEODUBBER_TORRENT_TIMEOUT` | Optional maximum torrent download time in seconds |
 
-## Voices and speed presets
+The online service uses CPU processing and a single worker for video jobs. Do not assume that adding API workers will increase throughput safely.
 
-The bundled voice configuration is intended to use two Georgian voices:
+### Desktop credentials
 
-- **Giorgi** — male.
-- **Nino** — female.
+Desktop Gemini access is read from the process environment variable `GEMINI_API_KEY`. The key is not intended to be stored in `settings.json`.
 
-With **Detect characters & gender (Gemini)** enabled, Gemini analyzes the audio and estimates the number of characters, their genders, and the voice assignment for each. Project settings are updated to match. If Gemini is unavailable, the application falls back to local male/female pitch estimation.
+On Windows, you can set a persistent user variable from Command Prompt:
 
-The Giorgi and Nino reference clips are used only by the `f5_georgian` engine, not by Edge. Additional Edge variants may be generated from the standard voices; listen to them before relying on them.
-
-| Priority | Speech model | Whisper beam | TTS lines at once | Video encoding |
-|---|---:|---:|---:|---|
-| fast | tiny | 1 | 8 | ultrafast (only when re-encoding) |
-| balanced | base | 1 | 6 | veryfast |
-| quality | small | 5 | 4 | veryfast |
-
-The video track is copied rather than re-encoded unless subtitles are burned into the video.
-
-## 1. Install (Windows 10/11)
-
-> **Read [Status and limitations](#7-status-and-limitations) before relying on the application.** The pipeline, audio processing, resume/cancel logic, and export were tested with stand-in model backends. The real AI-model integrations and GUI still need verification on your Windows PC.
-
-1. Install **Python 3.11** from [python.org](https://www.python.org/downloads/). During setup, select **Add Python to PATH**.
-2. Double-click `install.bat`. It creates a virtual environment, installs PyTorch (CUDA build if an NVIDIA GPU is detected, otherwise CPU), installs the requirements, and attempts to install FFmpeg with winget if FFmpeg is missing.
-3. If FFmpeg is still missing, download a Windows build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and put `ffmpeg.exe` and `ffprobe.exe` in `tools\ffmpeg\bin\`, or add them to your Windows `PATH`.
-4. Run `start.bat` to launch the application.
-
-## 2. Step 0 — verify Georgian speech before dubbing
-
-Georgian text-to-speech is a critical part of the result. Test the selected engine before dubbing a full film.
-
-| Engine | Georgian support | Voices | Notes |
-|---|---|---|---|
-| `f5_georgian` (default) | Yes — community fine-tune `tabluka90/georgian-f5-tts` of F5-TTS v1 | Multiple, using one reference clip per voice | Trained on Common Voice Georgian. Quality has not been independently verified here. Check the model and base-model licences; F5-TTS base weights are non-commercial. |
-| `piper_ka` | Yes — Piper `ka_GE` (Natia) | One female voice | Fast and CPU-friendly; requires the Piper binary and `.onnx` model. |
-| `mms_kat` | Yes — `facebook/mms-tts-kat` | One voice | CC-BY-NC; prosody may sound unnatural. |
-| XTTS-v2 | No | — | Georgian is not in its supported language list and this project does not use it. |
-
-To test F5-TTS, prepare two short, clear Georgian speech clips that you have permission to use (for example, your own recordings or suitable CC0 Common Voice clips), together with exact transcripts:
-
-```bat
-venv\Scripts\activate
-python scripts\verify_georgian_tts.py --ref-male m.wav --ref-male-text "..." --ref-female f.wav --ref-female-text "..."
+```cmd
+setx GEMINI_API_KEY "YOUR_NEW_KEY"
 ```
 
-Listen to the generated files in `tts_check\`. If the Georgian speech is not intelligible, do not continue with that engine; select another engine and test it.
+Close and reopen the application after setting it. If a key has ever been exposed in a public repository or shared log, revoke it with the provider and create a replacement.
 
-## 3. First run
+## Storage and backups
 
-1. Open **Settings → Models** and download the Georgian F5-TTS model, a Whisper model (the `small` model is a practical starting point), and NLLB-200 for translation. Models are not bundled in the slim source distribution; sizes are shown where known.
-2. **Optional speaker model:** for multi-character diarization, create a free Hugging Face account, accept the terms for [`pyannote/speaker-diarization-3.1`](https://huggingface.co/pyannote/speaker-diarization-3.1) and its required [`segmentation-3.0`](https://huggingface.co/pyannote/segmentation-3.0) dependency, create a read token, and enter it in Settings → Processing. Without this model, the application treats the audio as one speaker and shows a warning.
-3. Open **Settings → Voices → Add voice** and add at least one male and one female reference voice for the characters you need (a 5–12 second clip plus its exact Georgian transcript). Confirm that you have the right to use every recording. If voices run out, the application warns you; assign voices manually or enable sharing if appropriate.
-4. Select a video and choose **Start Dubbing**. After translation, use **Review** to correct genders, voice assignments, and Georgian text. Select **Continue** to generate voices and build the video.
+For the online API, project metadata, uploads, checkpoints and outputs are stored under `GEODUBBER_HOME`. The TTS cache is stored below the same data root. Choose a location with enough free disk space and back it up independently.
 
-The output folder is `output\`. Expected files include:
+For the Oracle Docker deployment, the host directory `/var/lib/geodubber` is mounted into the container as persistent storage. Back it up outside the VM. Do not treat a free-tier VM as the only copy of important media.
 
-- `<name>_GE_DUBBED.mp4`
-- `<name>_GE.srt`
-- `<name>_original.srt`
-- `<name>_translation.txt`
-- `<name>_report.json`
-
-## 4. How it works and design notes
-
-- **Video:** the video stream is copied without re-encoding, preserving the original resolution and frame rate. Georgian subtitles are added as a selectable soft subtitle track. Choosing **Burn subtitles** re-encodes with H.264 and requires FFmpeg with `libass`.
-- **Long videos:** audio is extracted through FFmpeg streaming. ASR runs in overlapping 10-minute chunks, with each sentence retained once. TTS output is cached per line, and the dub track is rendered in blocks. Measured peak RAM was approximately 115 MB for a three-hour timeline in the tested pipeline.
-- **Resume:** progress is checkpointed in `projects\<name>\state.json`. After a crash or stop, select **Start Dubbing** again; completed work is reused.
-- **Synchronization:** lines keep their original start time and may use up to 1.5 seconds of following silence. Otherwise, audio can be sped up by up to 1.3× with pitch preservation. Lines that still do not fit are kept in full and flagged in the report and warnings.
-- **Background audio:** Demucs can separate vocals with `--two-stems=vocals` in 10-minute chunks. If Demucs is unavailable, the original track is kept quietly under the dub, so some original speech may remain faintly audible. Background audio is ducked while Georgian speech plays.
-- **Gender:** a median fundamental-frequency (F0) heuristic uses an approximate 165 Hz split and confidence checks. Uncertain assignments are highlighted. Diarization identifies voices, not character names.
-- **Privacy:** processing is local by default. Network access is used for model downloads and YouTube downloads that you initiate, as well as configured online translation or AI services such as Gemini. Delete project data through Projects / Settings.
-- **Pause and cancel:** Pause takes effect at the next safe point between chunks or lines, not in the middle of an FFmpeg operation. Cancel terminates FFmpeg immediately.
-
-## 5. Tests
-
-Run the test suite with:
-
-```bash
-python -m pytest tests
-```
-
-The tests cover probing and validation, extraction, chunk planning, mixing, export, synchronization and placement, block rendering, speaker assignment, synthetic-signal gender estimation, voice assignment, SQLite, settings, and end-to-end pipeline scenarios. These include cancel/resume, pause/resume, Review edits, missing-voice errors, and diarization failure.
-
-The tests use stand-in model backends (tones and prefix text) so that they do not exercise real AI models.
-
-## 6. Build an executable
-
-Run:
-
-```bat
-build.bat
-```
-
-The expected folder build is `dist\GeoDubber\GeoDubber.exe`. This build path has not been verified on every target Windows configuration. If PyInstaller misses a package, update `geodubber.spec`.
-
-For distribution, the portable folder together with `install.bat` and `start.bat` is the recommended approach.
-
-## 7. Status and limitations
-
-### Tested in the development environment
-
-The real FFmpeg and NumPy portions of the pipeline were tested. The automated test suite covers the application logic using stand-in AI-model backends.
-
-### Not verified in this build
-
-The following integrations could not be run in the authoring environment and must be verified on the target Windows PC:
-
-- faster-whisper
-- pyannote speaker diarization
-- NLLB translation
-- F5-TTS
-- Piper and MMS TTS
-- Demucs
-- yt-dlp downloads
-- CUDA acceleration
-- the PySide6 GUI
-- `install.bat`, `build.bat`, and PyInstaller packaging
-- subtitle burn-in
-- real Gemini, Whisper, Edge, and F5 service calls
-
-Known risks include package-version conflicts (requirements are minimum versions, not a fully verified lock), F5 `infer()` argument differences between library versions, unknown Georgian translation quality from NLLB until reviewed, unknown naturalness of generated Georgian speech until listened to, gender-estimation errors for children or atypical voices, and overlapping speech that is not separated. The application does not show a whole-job estimated remaining time; it shows stage progress and estimates only where measurable. Some model licences restrict commercial use.
+For the desktop profile, protect the application data, model cache, projects, voices, and output folders before reinstalling or moving to another computer.
 
 ## Troubleshooting
 
-- **FFmpeg not found:** follow step 1.3 and ensure `ffmpeg.exe` and `ffprobe.exe` are on `PATH` or in `tools\ffmpeg\bin\`.
-- **Speaker model could not be loaded:** follow step 3.2, accept the model terms, and verify the Hugging Face read token.
-- **No Georgian voice assigned:** add voices in Settings → Voices, as described in step 3.3.
-- **Out of GPU memory:** switch the processing device to CPU or select the Fast priority preset.
-- **Gemini key missing:** configure `GEMINI_API_KEY` in the process environment (locally on Windows or in the hosted service Environment Variables). The application reads this variable only; never put the key in `settings.json` or Git.
-- **Translation quota exhausted:** wait until the quota resets, then use the v3.10 `--only-web` reset command above to retry web-fallback lines while preserving Gemini-translated lines.
+### API returns 401 Unauthorized
 
-Application logs are written to `logs\geodubber.log`.
+- Check that the browser and Admin Panel use the same `GEODUBBER_API_TOKEN` as the API host.
+- Confirm that the service process received the current environment variables.
+- Restart the API after changing the token.
+- Do not share the token in screenshots or support messages.
 
----
+### API returns 503 because the token is not configured
 
-**Distribution note:** This is the slim source folder (approximately 1 MB). FFmpeg is not included. Keep an existing `tools\ffmpeg` folder or allow `install.bat` to install FFmpeg with winget. Do not delete your existing virtual environment when updating an installation; copy the source files over the existing project only after backing up project data.
+The API token is missing or shorter than 32 characters in the running process. Set `GEODUBBER_API_TOKEN` and restart the service.
+
+### Browser interface opens but cannot reach the API
+
+- Confirm that `/healthz` works on the processing host.
+- Confirm that the HTTPS tunnel or reverse proxy points to `http://127.0.0.1:10000` (or the internal API address in the Docker deployment).
+- Confirm that the Admin Panel's `GEODUBBER_API_URL` has the right HTTPS base URL and no trailing slash.
+- Check the tunnel/proxy status and Windows firewall rules.
+
+### FFmpeg or FFprobe not found
+
+Install FFmpeg and add its `bin` directory to PATH. Open a new terminal and verify with `ffmpeg -version` and `ffprobe -version`.
+
+### Translation stays at 0% or is slow
+
+- Check that `GEMINI_API_KEY` is configured in the process running the API.
+- Review the server log for Gemini quota (429), temporary service (503/504), authentication, or model-not-found errors.
+- Large batches, long films, API quotas, network latency, and retries can increase processing time.
+- If a quota is exhausted, wait for the provider's reset window before retrying. Do not repeatedly restart a job while a request is still running.
+
+### Some original dialogue remains audible
+
+Demucs must be installed and usable for dialogue/background separation. If separation is unavailable or fails, the online pipeline keeps the original soundtrack quietly under the Georgian dub. Some original speech can therefore remain audible.
+
+### Lines overlap or sound rushed
+
+Review warnings for lines that exceed their available time window. Shorten the Georgian text in Review where possible. Generated speech can be sped up within configured limits, but a line may still overlap the next one if it is too long.
+
+### Magnet import does not start or stalls
+
+A valid Magnet link needs an info hash and reachable peers/seeders. Torrent metadata discovery can take several minutes. Only the selected supported video file is downloaded. Check the server log, tracker availability, disk space, and the configured torrent timeout.
+
+### Video download fails
+
+- For YouTube, use one HTTPS video URL, not a playlist.
+- For direct links, use a public HTTPS URL that ends in MP4, MKV, AVI, MOV or WEBM.
+- Private/local network URLs and non-HTTPS direct links are rejected.
+- Confirm that the source can be accessed by the processing host, not just by your browser.
+
+## Tests and project layout
+
+Run the automated tests from the repository root:
+
+```powershell
+python -m pytest tests
+```
+
+The tests cover core processing logic, media handling, synchronization, voice assignment, settings, and online API behavior. Many tests use stand-in model backends; passing the test suite does not by itself verify the quality or availability of real Gemini, Whisper, TTS, Demucs, YouTube or torrent services on a particular computer.
+
+Important project paths:
+
+| Path | Purpose |
+|---|---|
+| `app.py` | Desktop application entry point |
+| `online_api.py` | FastAPI service and browser API |
+| `web/index.html` | Browser interface |
+| `config/` | Application settings and configuration |
+| `core/` | Processing pipeline, translation, audio, video and import logic |
+| `scripts/` | Maintenance and verification scripts |
+| `tests/` | Automated tests |
+| `deploy/oracle-cloud/` | Oracle Cloud Compose and HTTPS deployment files |
+| `requirements.txt` | Desktop runtime dependencies |
+| `requirements-online.txt` | Online API runtime dependencies |
+| `install.bat` / `start.bat` | Windows desktop installation and startup |
+
+## Known limitations
+
+- The online API processes one video job at a time.
+- The online runtime is CPU-oriented. Long videos can take a long time, especially on low-power computers.
+- Gemini is subject to provider availability, rate limits, quotas and model changes.
+- Speaker count and perceived gender are estimates. Listen to the original samples and confirm them in Review.
+- Demucs separation may be unavailable or fail on a particular host; the fallback can leave faint original speech under the dub.
+- Timing fit is constrained by the available speech window. Some long Georgian lines may still overlap.
+- The automated test suite does not replace listening to the completed dub or testing the real integrations on the target machine.
+- Dependency requirements use version ranges rather than a fully pinned, reproducible lock file. A clean installation may resolve newer package versions.
+
+Before processing a full-length video, test a short clip, review the translation and voices, and listen to the final MP4.
