@@ -170,6 +170,7 @@ def _progress_dict(progress: Any) -> dict:
         "overall": round(float(progress.overall or 0), 4),
         "message": str(progress.message or "")[:300],
         "etaSeconds": progress.eta_seconds,
+        "totalEtaSeconds": getattr(progress, "total_eta_seconds", None),
         "speed": str(progress.speed or "")[:80],
         "stages": progress.stage_status or {},
     }
@@ -256,6 +257,35 @@ def _run_job(job_id: str) -> None:
             ]
         except Exception:
             LOG.exception("Could not build voice list for review")
+        # Extract one representative frame for each detected speaker. This is only a
+        # visual aid for the user's manual identity check; no gender is inferred from appearance.
+        frame_dir = pl.work / "speaker_frames"
+        frame_dir.mkdir(parents=True, exist_ok=True)
+        frame_available = {}
+        try:
+            from core.ffmpeg_utils import run_ffmpeg
+            by_speaker = {}
+            for segment in (pl.state.get("segments") or []):
+                sid = str(segment.get("speaker_id", ""))
+                if not SPEAKER_ID_RE.fullmatch(sid):
+                    continue
+                duration = max(0.0, float(segment.get("end", 0)) - float(segment.get("start", 0)))
+                if duration >= 0.8:
+                    by_speaker.setdefault(sid, []).append(segment)
+            for sid, rows in by_speaker.items():
+                sample = max(rows, key=lambda row: float(row.get("end", 0)) - float(row.get("start", 0)))
+                at = max(0.0, (float(sample["start"]) + float(sample["end"])) / 2.0)
+                frame = frame_dir / f"{sid}.jpg"
+                try:
+                    run_ffmpeg(["-ss", str(at), "-i", str(source_path), "-frames:v", "1",
+                                "-vf", "scale=480:-2", "-q:v", "4", str(frame)], control=control)
+                    frame_available[sid] = frame.is_file() and frame.stat().st_size > 1000
+                except Exception:
+                    LOG.exception("Could not extract review frame for %s", sid)
+                    frame_available[sid] = False
+        except Exception:
+            LOG.exception("Could not prepare speaker review frames")
+
         review = {
             "segments": [
                 {
@@ -278,6 +308,7 @@ def _run_job(job_id: str) -> None:
                 }
                 for sid, info in (pl.state.get("speakers") or {}).items()
             },
+            "frameAvailable": frame_available,
             "assignments": pl.state.get("assignments") or {},
             "voices": voice_rows,
         }
@@ -544,6 +575,18 @@ def get_review(job_id: str, authorization: str | None = Header(default=None)) ->
     if job.get("status") != "review_required" or not job.get("review"):
         raise HTTPException(409, "ამ პროექტს ამ ეტაპზე გადახედვა არ სჭირდება.")
     return job["review"]
+
+
+@app.get("/v1/jobs/{job_id}/frames/{speaker_id}")
+def preview_frame(job_id: str, speaker_id: str, authorization: str | None = Header(default=None)):
+    _require_api_key(authorization)
+    _job_or_404(job_id)
+    if not SPEAKER_ID_RE.fullmatch(speaker_id):
+        raise HTTPException(404, "კადრი ვერ მოიძებნა.")
+    path = _job_dir(job_id) / "work" / "speaker_frames" / f"{speaker_id}.jpg"
+    if not path.is_file():
+        raise HTTPException(404, "პერსონაჟის კადრი ჯერ მზად არ არის.")
+    return FileResponse(path, media_type="image/jpeg", filename=f"{speaker_id}.jpg")
 
 
 @app.post("/v1/jobs/{job_id}/review")
