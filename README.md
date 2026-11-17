@@ -4,6 +4,8 @@
 
 This README describes the slim source distribution. It includes the application code and installation scripts; large AI models and FFmpeg binaries are not bundled.
 
+> **Credential security:** Gemini API keys must be supplied through the `GEMINI_API_KEY` environment variable. The repository intentionally excludes the local `settings.json` file. If a key was ever committed, revoke it and create a replacement; deleting it from the latest version does not remove it from old Git history.
+
 ## Latest changes
 
 ### v3.10
@@ -66,12 +68,12 @@ This README describes the slim source distribution. It includes the application 
 - **Gemini speaker detection can recover from a busy model.** A 503 high-demand or 429 response is retried on the same model after 5, 15, and 30 seconds. Cancellation remains available during retries, then the next model is tried.
 - Warnings list reasons from all attempted models. The model order in this release was `gemini-flash-latest`, `gemini-3.5-flash-lite`, and `gemini-3.8-flash`.
 
-### v3.2
+### Gemini credentials
 
-- **Settings → Processing → Gemini API key:** enter the key once; it is saved in `settings.json` on this PC as plain text.
-- Leave the setting empty to use the `GEMINI_API_KEY` environment variable instead.
-- The key is used for translation, timing rewrites, and Gemini speaker detection.
-- The project was regenerated from the current source.
+- Gemini credentials are read only from the `GEMINI_API_KEY` process environment variable.
+- The key is not stored in `settings.json`, displayed in the Settings window, or committed to Git.
+- On Windows, run `setx GEMINI_API_KEY "YOUR_NEW_KEY"` in Command Prompt, then close and reopen the application so it inherits the new variable.
+- On Render, add an Environment Variable named `GEMINI_API_KEY` in the service's Environment settings. Do not put the value in source code, README files, or GitHub.
 
 ### v3.1 fixes from a real run log
 
@@ -118,7 +120,7 @@ Version 2 was built after reviewing a real Mickey 17 dubbing run.
 
 ### Re-dub a project with v2 or later translation logic
 
-1. Configure `GEMINI_API_KEY` as an environment variable or enter it in Settings.
+1. Configure `GEMINI_API_KEY` as an environment variable. The Settings window does not accept or store API keys.
 2. Optionally edit `glossary.txt` to add the names used in the film.
 3. Clear old translations so they can be regenerated:
 
@@ -269,7 +271,7 @@ Known risks include package-version conflicts (requirements are minimum versions
 - **Speaker model could not be loaded:** follow step 3.2, accept the model terms, and verify the Hugging Face read token.
 - **No Georgian voice assigned:** add voices in Settings → Voices, as described in step 3.3.
 - **Out of GPU memory:** switch the processing device to CPU or select the Fast priority preset.
-- **Gemini key missing:** configure `GEMINI_API_KEY` or enter the key in Settings → Processing. Do not commit API keys to Git or include them in a public or shared archive.
+- **Gemini key missing:** configure `GEMINI_API_KEY` in the process environment (locally on Windows or in the hosted service Environment Variables). The application reads this variable only; never put the key in `settings.json` or Git.
 - **Translation quota exhausted:** wait until the quota resets, then use the v3.10 `--only-web` reset command above to retry web-fallback lines while preserving Gemini-translated lines.
 
 Application logs are written to `logs\geodubber.log`.
