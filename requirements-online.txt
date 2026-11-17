@@ -14,3 +14,4 @@ requests>=2.31
 huggingface_hub>=0.23
 faster-whisper>=1.0,<2
 demucs>=4.0
+yt-dlp>=2025.1.15
