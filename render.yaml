@@ -15,6 +15,10 @@ services:
     envVars:
       - key: GEODUBBER_HOME
         value: /var/data/geodubber
+      - key: HF_HOME
+        value: /var/data/geodubber/hf-cache
+      - key: TORCH_HOME
+        value: /var/data/geodubber/torch-cache
       - key: GEODUBBER_API_TOKEN
         sync: false
       - key: GEMINI_API_KEY
