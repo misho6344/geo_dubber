@@ -1,0 +1,12 @@
+# Local configuration and secrets
+/settings.json
+.env
+.env.*
+!/.env.example
+
+# Local processing data
+/logs/
+/output/
+/projects/
+/cache/
+/temp/
