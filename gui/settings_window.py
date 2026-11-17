@@ -7,7 +7,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout,
                                QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from config.settings import Settings, sub_dir
+from config.settings import Settings, get_gemini_api_key, sub_dir
 from core.georgian_tts import F5_REPO
 from core.voices import delete_voice, load_user_voices
 from gui.voice_manager import AddVoiceDialog
@@ -62,21 +62,20 @@ class SettingsDialog(QDialog):
         self.chunk = QDoubleSpinBox(); self.chunk.setRange(0.5, 60); self.chunk.setValue(settings.chunk_minutes); self.chunk.setSuffix(" min")
         self.tbatch = QSpinBox(); self.tbatch.setRange(1, 128); self.tbatch.setValue(settings.translation_batch)
         self.lang = QComboBox(); self.lang.addItems(["English"]);
-        # Gemini key: typed here, or set once via the GEMINI_API_KEY environment variable (preferred).
-        self.gemini_key = QLineEdit(settings.gemini_api_key); self.gemini_key.setEchoMode(QLineEdit.Password)
-        self.gemini_key.setPlaceholderText("Gemini API key (paste here, or use GEMINI_API_KEY)")
-        self.gemini_show = QCheckBox("Show key")
-        self.gemini_show.toggled.connect(lambda on: self.gemini_key.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
-        gem_row = QWidget(); gem_lay = QHBoxLayout(gem_row); gem_lay.setContentsMargins(0, 0, 0, 0)
-        gem_lay.addWidget(self.gemini_key, 1); gem_lay.addWidget(self.gemini_show)
-        self.gemini_hint = QLabel("Stored in plain text in settings.json on this PC. Leave empty if GEMINI_API_KEY is set.")
+        # Gemini credentials are environment-only; never expose or persist the secret in the UI.
+        key_configured = bool(get_gemini_api_key())
+        self.gemini_hint = QLabel(
+            "GEMINI_API_KEY is configured in this environment."
+            if key_configured else
+            "GEMINI_API_KEY is not configured. Add it to the server Environment Variables; do not paste it here or store it in settings.json."
+        )
         self.gemini_hint.setWordWrap(True)
         self.token = QLineEdit(settings.hf_token); self.token.setEchoMode(QLineEdit.Password)
         self.token.setPlaceholderText("Hugging Face token (only for gated speaker model)")
         for lab, wd in (("Processing priority", self.priority), ("Speech recognition model", self.asr), ("Translation model", self.tr),
                         ("TTS engine", self.tts), ("GPU acceleration", self.device), ("Chunk length", self.chunk),
                         ("Translation batch size", self.tbatch), ("Interface language", self.lang),
-                        ("Gemini API key", gem_row), ("", self.gemini_hint), ("HF token", self.token)):
+                        ("Gemini API", self.gemini_hint), ("HF token", self.token)):
             f.addRow(lab, wd)
         self.share = QCheckBox("Allow two characters to share a voice when not enough voices exist"); self.share.setChecked(settings.allow_voice_sharing)
         f.addRow(self.share)
@@ -160,7 +159,6 @@ class SettingsDialog(QDialog):
         s.priority = self.priority.currentText(); s.asr_model = "" if self.asr.currentIndex() == 0 else self.asr.currentText()
         s.translation_model = self.tr.text().strip(); s.tts_engine = self.tts.currentText(); s.device = self.device.currentText()
         s.chunk_minutes = self.chunk.value(); s.translation_batch = self.tbatch.value(); s.hf_token = self.token.text().strip()
-        s.gemini_api_key = self.gemini_key.text().strip()
         s.allow_voice_sharing = self.share.isChecked(); s.voice_volume, s.background_volume = self.vv.value(), self.bv.value()
         s.original_dialogue_volume = self.ov.value(); s.duck_background = self.duck.isChecked(); s.video_crf = self.crf.value()
         s.burn_subtitles = self.burn.isChecked(); s.audio_bitrate = self.abr.currentText()
