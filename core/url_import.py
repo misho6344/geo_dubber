@@ -1,26 +1,28 @@
-"""Safe video URL importing for GeoDubber's online API.
+"""Authorized video URL importing for GeoDubber's online API.
 
 Supported sources:
-- YouTube video URLs (single video only)
-- Direct HTTPS URLs to public video files
+- YouTube single-video URLs
+- Direct HTTPS video-file URLs
+- BitTorrent magnet URIs (one video file selected from the torrent)
 
-Magnet/torrent URLs and arbitrary third-party page extraction are intentionally
-not supported. Users must only import content they own or are authorized to process.
+Only import videos you own or are authorized to process.
 """
 from __future__ import annotations
 
 import ipaddress
-import socket
+import re
 import shutil
+import socket
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
 REDIRECT_CODES = {301, 302, 303, 307, 308}
+MAGNET_INFO_HASH = re.compile(r"^(?:[0-9a-fA-F]{40}|[A-Z2-7]{32})$")
 
 
 class VideoUrlError(ValueError):
@@ -62,6 +64,154 @@ def _validate_public_https_url(url: str) -> str:
         if not ip.is_global:
             raise VideoUrlError("ლოკალურ ან კერძო ქსელში განთავსებული მისამართებიდან ჩამოტვირთვა აკრძალულია.")
     return extension
+
+
+def _tracker_is_public(tracker: str) -> bool:
+    parsed = urlparse(str(tracker))
+    if parsed.scheme.lower() not in {"udp", "http", "https"} or not parsed.hostname:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else 6969)
+        kind = socket.SOCK_DGRAM if parsed.scheme == "udp" else socket.SOCK_STREAM
+        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, port, type=kind)}
+    except (OSError, ValueError):
+        return False
+    if not addresses:
+        return False
+    try:
+        return all(ipaddress.ip_address(value).is_global for value in addresses)
+    except ValueError:
+        return False
+
+
+def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progress) -> Path:
+    query = parse_qs(urlparse(magnet).query)
+    info_hashes = [
+        item.split(":", 2)[-1].strip()
+        for item in query.get("xt", [])
+        if item.lower().startswith("urn:btih:")
+    ]
+    if not any(MAGNET_INFO_HASH.fullmatch(value) for value in info_hashes):
+        raise VideoUrlError("Magnet ბმულში არასწორი ან დაკარგული BitTorrent info-hash არის.")
+
+    try:
+        import libtorrent as lt
+    except ImportError as exc:
+        raise VideoUrlError("Magnet/Torrent ჩამოტვირთვისთვის libtorrent მოდული არ არის დაყენებული. განაახლე requirements-online.txt.") from exc
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    torrent_dir = destination_dir / "_torrent_download"
+    torrent_dir.mkdir(parents=True, exist_ok=True)
+    session = None
+    handle = None
+    selected_path: Path | None = None
+    selected_size = 0
+
+    try:
+        try:
+            params = lt.parse_magnet_uri(magnet)
+        except Exception as exc:
+            raise VideoUrlError("Magnet ბმულის ფორმატი არასწორია.") from exc
+
+        # Reject tracker endpoints that resolve to localhost, private or reserved IP ranges.
+        try:
+            params.trackers = [tracker for tracker in params.trackers if _tracker_is_public(tracker)]
+        except Exception:
+            params.trackers = []
+
+        params.save_path = str(torrent_dir)
+        params.storage_mode = lt.storage_mode_t.storage_mode_sparse
+        session = lt.session({"listen_interfaces": "0.0.0.0:0", "enable_dht": True})
+        handle = session.add_torrent(params)
+
+        metadata_deadline = time.monotonic() + 300
+        last_update = 0.0
+        while True:
+            try:
+                torrent_info = handle.torrent_file()
+            except Exception:
+                torrent_info = None
+            if torrent_info is not None:
+                break
+            now = time.monotonic()
+            if now >= metadata_deadline:
+                raise VideoUrlError("ტორენტის ინფორმაცია ვერ მოიძებნა. შეამოწმე magnet ბმული, seed-ები და tracker-ები.")
+            if now - last_update >= 1:
+                progress(0, 0, "metadata")
+                last_update = now
+            time.sleep(1)
+
+        file_storage = torrent_info.files()
+        candidates: list[tuple[int, int, Path]] = []
+        root = torrent_dir.resolve()
+        for index in range(file_storage.num_files()):
+            relative_name = file_storage.file_path(index)
+            extension = Path(relative_name).suffix.lower()
+            if extension not in VIDEO_EXTENSIONS:
+                continue
+            size = int(file_storage.file_size(index))
+            if size <= 0:
+                continue
+            candidate = (torrent_dir / relative_name).resolve()
+            if not candidate.is_relative_to(root):
+                continue
+            candidates.append((size, index, candidate))
+
+        if not candidates:
+            raise VideoUrlError("ტორენტში მხარდაჭერილი ვიდეოფაილი ვერ მოიძებნა (MP4, MKV, AVI, MOV, WEBM).")
+
+        # Download one main video only; skip extras, samples, subtitles and archives.
+        viable = [item for item in candidates if item[0] <= max_bytes]
+        if not viable:
+            raise VideoUrlError("ტორენტში არსებული ვიდეოფაილები 8 GB დაშვებულ ზომას აჭარბებს.")
+        non_sample = [item for item in viable if "sample" not in item[2].name.lower()]
+        selected_size, selected_index, selected_path = max(non_sample or viable, key=lambda item: item[0])
+
+        priorities = [0] * file_storage.num_files()
+        priorities[selected_index] = 4
+        handle.prioritize_files(priorities)
+        handle.resume()
+
+        deadline = time.monotonic() + max(3600, int(__import__("os").getenv("GEODUBBER_TORRENT_TIMEOUT", "86400")))
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                raise VideoUrlError("ტორენტის ჩამოტვირთვის დროის ლიმიტი ამოიწურა.")
+            try:
+                downloaded = int(handle.file_progress()[selected_index])
+            except Exception:
+                downloaded = 0
+            progress(downloaded, selected_size, "downloading")
+            if downloaded >= selected_size and selected_path.is_file() and selected_path.stat().st_size >= selected_size:
+                break
+            time.sleep(1)
+
+        handle.pause()
+        session.remove_torrent(handle)
+        handle = None
+        session = None
+
+        final_path = destination_dir / ("source" + selected_path.suffix.lower())
+        if final_path.exists():
+            final_path.unlink()
+        shutil.move(str(selected_path), str(final_path))
+        shutil.rmtree(torrent_dir, ignore_errors=True)
+        progress(selected_size, selected_size, "finished")
+        return final_path
+
+    except VideoUrlError:
+        raise
+    except Exception as exc:
+        raise VideoUrlError("ტორენტიდან ვიდეოს ჩამოტვირთვა ვერ მოხერხდა. შეამოწმე seed-ები, tracker-ები და დისკზე თავისუფალი ადგილი.") from exc
+    finally:
+        if handle is not None and session is not None:
+            try:
+                handle.pause()
+                session.remove_torrent(handle)
+            except Exception:
+                pass
 
 
 def _download_direct(url: str, destination: Path, max_bytes: int, progress) -> Path:
@@ -182,7 +332,7 @@ def download_video_url(url: str, destination_dir: str | Path, max_bytes: int, pr
         raise VideoUrlError("ვიდეოს ბმული ზედმეტად გრძელია.")
     parsed = urlparse(raw)
     if parsed.scheme.lower() == "magnet":
-        raise VideoUrlError("Magnet/Torrent ბმულები არ არის მხარდაჭერილი. გამოიყენე ვიდეოფაილი ან პირდაპირი HTTPS ბმული იმ მასალაზე, რომლის გამოყენების უფლებაც გაქვს.")
+        return _download_magnet(raw, Path(destination_dir), max_bytes, progress)
     if _validate_youtube_url(raw):
         return _download_youtube(raw, Path(destination_dir), max_bytes, progress)
     extension = _validate_public_https_url(raw)
