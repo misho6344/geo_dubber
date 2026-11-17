@@ -27,6 +27,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
+from config.settings import get_gemini_api_key
+
 log = logging.getLogger(__name__)
 
 _GEORGIAN_CHARS = re.compile(r"[Ⴀ-ჿⴀ-⴯]")
@@ -307,7 +309,7 @@ class GeminiTranslator(Translator):
         self.model_name = model if (model and "nllb" not in model.lower()) else self.CANDIDATE_MODELS[0]
         self.models = [self.model_name] + [m for m in self.CANDIDATE_MODELS if m != self.model_name]
         self.batch = max(1, int(batch or 16))
-        self.api_key = (api_key or os.environ.get("GEMINI_API_KEY", "")).strip()
+        self.api_key = (api_key or get_gemini_api_key()).strip()
         self.max_rounds = max_rounds
         self.max_workers = max(1, max_workers)
         self.sleep = sleep
@@ -325,7 +327,7 @@ class GeminiTranslator(Translator):
         self.stats = {"gemini": 0, "gemini_retry": 0, "web": 0, "failed": 0, "requests": 0, "quota_waits": 0}
         try:
             if not self.api_key:
-                raise ValueError("no Gemini API key (set gemini_api_key in settings.json or GEMINI_API_KEY)")
+                raise ValueError("GEMINI_API_KEY environment variable is not set")
             from google import genai                    # imported lazily so tests run without the SDK
             self.client = genai.Client(api_key=self.api_key, http_options={"timeout": 120000})  # milliseconds
         except Exception as e:
