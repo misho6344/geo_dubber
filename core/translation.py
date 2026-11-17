@@ -320,6 +320,9 @@ class GeminiTranslator(Translator):
         self.sequential = bool(sequential)
         self.last_notes: list[str] = []
         self._cool_until: dict[str, float] = {}
+        self._progress_callback = None
+        self._progress_done = 0
+        self._progress_total = 0
         self.client = None
         if not self.api_key:
             log.warning("NO GEMINI KEY: translation will use the word-level web fallback (much lower quality). "
@@ -339,6 +342,16 @@ class GeminiTranslator(Translator):
         remaining = max(0.0, float(seconds))
         while remaining > 0:
             self.checkpoint()                            # raises CancelledError when the user cancels
+            if self._progress_callback:
+                try:
+                    self._progress_callback(
+                        self._progress_done,
+                        self._progress_total,
+                        f"Gemini დროებით მიუწვდომელია — ხელახლა ცდა {int(remaining + 0.999)} წმ-ში",
+                        None,
+                    )
+                except Exception:
+                    log.exception("Translation progress callback failed during retry wait")
             step = min(1.0, remaining)
             self.sleep(step)
             remaining -= step
@@ -465,7 +478,7 @@ class GeminiTranslator(Translator):
 
     def translate(self, texts: list[str], src_lang: str, contexts: list | None = None,
                   max_seconds_list: list | None = None, genders: list | None = None,
-                  glossary: dict | None = None) -> list[str]:
+                  glossary: dict | None = None, progress_callback=None) -> list[str]:
         if not texts:
             return []
         glossary = dict(glossary or {})
@@ -482,6 +495,18 @@ class GeminiTranslator(Translator):
                           "max_seconds": float(max_seconds_list[i] or 0) or 0.0, "prev": prev, "nxt": nxt})
         chunks = [items[k:k + self.batch] for k in range(0, len(items), self.batch)]
         results: dict[int, tuple[str, str, str]] = {}
+        completed = 0
+        self._progress_callback = progress_callback
+        self._progress_done = 0
+        self._progress_total = len(texts)
+
+        def notify(done: int, message: str, partial: dict | None = None) -> None:
+            self._progress_done = done
+            if progress_callback:
+                try:
+                    progress_callback(done, len(texts), message, partial)
+                except Exception:
+                    log.exception("Translation progress callback failed")
 
         def _job(chunk, memory=None):
             if self.client is None:
@@ -498,22 +523,47 @@ class GeminiTranslator(Translator):
             pairs = [(it["text"], part[it["i"]][0]) for it in chunk if part.get(it["i"], ("",))[0]]
             return pairs[-self.context_lines:] if self.context_lines else []
 
-        parts: list[dict] = []
         if self.sequential and self.client is not None and len(chunks) > 1:
             memory: list[tuple[str, str]] = []
-            for c in chunks:
-                part = _job(c, memory)
-                parts.append(part)
-                memory = (memory + _memory_from(part, c))[-self.context_lines:] if self.context_lines else []
+            for chunk_index, chunk in enumerate(chunks, start=1):
+                notify(
+                    completed,
+                    f"Gemini პარტია {chunk_index}/{len(chunks)} — მუშავდება {len(chunk)} ხაზი",
+                )
+                part = _job(chunk, memory)
+                results.update(part)
+                completed += len(chunk)
+                notify(
+                    completed,
+                    f"თარგმნილია {completed}/{len(texts)} ხაზი · პარტია {chunk_index}/{len(chunks)}",
+                    part,
+                )
+                memory = (memory + _memory_from(part, chunk))[-self.context_lines:] if self.context_lines else []
         else:
             workers = min(self.max_workers, max(1, len(chunks)))
             if workers == 1:
-                parts = [_job(c) for c in chunks]
+                for chunk_index, chunk in enumerate(chunks, start=1):
+                    notify(completed, f"თარგმნის პარტია {chunk_index}/{len(chunks)} მუშავდება")
+                    part = _job(chunk)
+                    results.update(part)
+                    completed += len(chunk)
+                    notify(completed, f"თარგმნილია {completed}/{len(texts)} ხაზი · პარტია {chunk_index}/{len(chunks)}", part)
             else:
+                from concurrent.futures import as_completed
+                completed_by_index: dict[int, dict] = {}
                 with ThreadPoolExecutor(max_workers=workers) as pool:
-                    parts = list(pool.map(_job, chunks))
-        for part in parts:
-            results.update(part)
+                    futures = {pool.submit(_job, chunk): i for i, chunk in enumerate(chunks)}
+                    for future in as_completed(futures):
+                        chunk_index = futures[future]
+                        part = future.result()
+                        completed_by_index[chunk_index] = part
+                        results.update(part)
+                        completed += len(chunks[chunk_index])
+                        notify(
+                            completed,
+                            f"თარგმნილია {completed}/{len(texts)} ხაზი · დასრულდა პარტია {chunk_index + 1}/{len(chunks)}",
+                            part,
+                        )
 
         out, sources, notes = [], [], []
         for i in range(len(texts)):
@@ -524,6 +574,7 @@ class GeminiTranslator(Translator):
             self.stats[src] = self.stats.get(src, 0) + 1
         self.last_sources = sources
         self.last_notes = notes
+        self._progress_callback = None
         return out
 
     def shorten(self, items: list[dict], src_lang: str = "en") -> dict[int, str]:
@@ -579,7 +630,7 @@ def translate_segments(
         for s in to_translate:
             s["translation"], s["mt_source"] = s.get("text", ""), "source"
         if on_batch:
-            on_batch(len(to_translate), len(to_translate))
+            on_batch(len(to_translate), len(to_translate), "წყარო უკვე ქართულადაა — თარგმნა გამოტოვებულია")
         return
 
     ordered = sorted(segments, key=lambda s: s.get("start", 0))
@@ -600,8 +651,30 @@ def translate_segments(
     if hasattr(translator, "batch") and batch_size:
         translator.batch = max(1, int(batch_size))
 
-    translated = translator.translate(texts, src_lang, contexts=contexts, max_seconds_list=max_secs,
-                                      genders=genders, glossary=glossary or {})
+    def _translation_progress(done: int, total: int, message: str, partial: dict | None = None) -> None:
+        # Save each completed batch immediately. If the job is cancelled later, those
+        # translations remain in the checkpoint instead of being lost with the batch list.
+        if partial:
+            for index, value in partial.items():
+                if not 0 <= int(index) < len(to_translate):
+                    continue
+                ka, source, note = value
+                segment = to_translate[int(index)]
+                segment["translation"] = ka
+                segment["mt_source"] = source
+                if note:
+                    segment["tr_note"] = note
+        if on_batch:
+            on_batch(done, total, message)
+
+    if isinstance(translator, GeminiTranslator):
+        translated = translator.translate(
+            texts, src_lang, contexts=contexts, max_seconds_list=max_secs,
+            genders=genders, glossary=glossary or {}, progress_callback=_translation_progress,
+        )
+    else:
+        translated = translator.translate(texts, src_lang, contexts=contexts, max_seconds_list=max_secs,
+                                           genders=genders, glossary=glossary or {})
     sources = getattr(translator, "last_sources", None) or ["gemini"] * len(to_translate)
 
     notes = getattr(translator, "last_notes", None) or [""] * len(to_translate)
@@ -613,4 +686,4 @@ def translate_segments(
         if note:
             seg["tr_note"] = note          # idiom | joke | pun | culture | unclear: shown in Review
     if on_batch:
-        on_batch(len(to_translate), len(to_translate))
+        on_batch(len(to_translate), len(to_translate), f"თარგმნა დასრულდა: {len(to_translate)} ხაზი")
