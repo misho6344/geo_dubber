@@ -167,9 +167,6 @@ def _run_job(job_id: str) -> None:
         if not job:
             return
         control = _controls.setdefault(job_id, Control())
-        if control.cancelled:
-            control = Control()
-            _controls[job_id] = control
         options = dict(job["options"])
         source_path = Path(job["sourcePath"])
         project_dir = _job_dir(job_id)
@@ -573,7 +570,7 @@ def pause_job(job_id: str, authorization: str | None = Header(default=None)) -> 
     job = _job_or_404(job_id)
     with _lock:
         control = _controls.get(job_id)
-        if not control or job.get("status") not in {"running", "queued", "review_required"}:
+        if not control or job.get("status") not in {"running", "queued"}:
             raise HTTPException(409, "პროექტის შეჩერება ამ ეტაპზე შეუძლებელია.")
         control.pause()
         job["status"] = "paused"
