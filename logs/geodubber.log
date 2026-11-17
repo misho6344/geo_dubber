@@ -1642,3 +1642,162 @@ demucs.separate: error: argument --segment: invalid int value: '7.0'
 2026-11-15 13:35:30,039 WARNING core.processing_manager: Dialogue/background separation is not available: the original soundtrack is kept quietly under the Georgian dub, so some ORIGINAL SPEECH may remain faintly audible.
 2026-11-15 13:35:55,984 WARNING core.processing_manager: 53 line(s) are longer than their window even after speed-up (kept in full, may overlap the next line): ids [53, 78, 79, 80, 81, 85, 86, 144, 184, 185, 191, 236, 305, 347, 348]
 2026-11-15 13:35:57,456 WARNING core.processing_manager: Quality check: 3 x spill_into_other (ids [85, 580, 606]). Listen to them in Review.
+2026-11-16 18:01:06,226 WARNING core.processing_manager: Imported 1092 Georgian lines from 20დღე.srt — skipping speech recognition and translation.
+2026-11-16 18:01:31,194 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/upload/v1/files "HTTP/1.1 200 OK"
+2026-11-16 18:01:33,496 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/upload/v1/files?upload_id=AFy3sg20Eah8yZ0F9hWdyvgqZP86DOd7miTWE8T4aneJeONUf8ZA3ODbddfGUwSD9ORrRAV2u561lNzvKAPAH4ca7DvKKIouYcl2dl3nrtN6Tw&upload_protocol=resumable "HTTP/1.1 200 OK"
+2026-11-16 18:01:35,562 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/upload/v1/files?upload_id=AFy3sg20Eah8yZ0F9hWdyvgqZP86DOd7miTWE8T4aneJeONUf8ZA3ODbddfGUwSD9ORrRAV2u561lNzvKAPAH4ca7DvKKIouYcl2dl3nrtN6Tw&upload_protocol=resumable "HTTP/1.1 200 OK"
+2026-11-16 18:01:38,672 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/upload/v1/files?upload_id=AFy3sg20Eah8yZ0F9hWdyvgqZP86DOd7miTWE8T4aneJeONUf8ZA3ODbddfGUwSD9ORrRAV2u561lNzvKAPAH4ca7DvKKIouYcl2dl3nrtN6Tw&upload_protocol=resumable "HTTP/1.1 200 OK"
+2026-11-16 18:01:38,698 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:01:48,482 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:01:48,483 WARNING core.gemini_speakers: Gemini (gemini-3.8-flash) speaker analysis failed (attempt 1): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:01:53,487 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:02:09,762 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:02:09,775 WARNING core.gemini_speakers: Gemini (gemini-3.8-flash) speaker analysis failed (attempt 2): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:02:24,786 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:12:23,344 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent "HTTP/1.1 504 Gateway Timeout"
+2026-11-16 18:12:23,346 WARNING core.gemini_speakers: Gemini (gemini-3.8-flash) speaker analysis failed (attempt 3): 504 DEADLINE_EXCEEDED. {'error': {'code': 504, 'message': 'Deadline expired before operation could complete.', 'status': 'DEADLINE_EXCEEDED'}}
+2026-11-16 18:12:53,363 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:13:00,360 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:13:00,362 WARNING core.gemini_speakers: Gemini (gemini-3.8-flash) speaker analysis failed (attempt 4): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:13:00,363 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:14:08,776 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:14:08,780 WARNING core.gemini_speakers: Gemini (gemini-3.6-flash) speaker analysis failed (attempt 1): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:14:13,790 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:14:32,501 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:14:32,503 WARNING core.gemini_speakers: Gemini (gemini-3.6-flash) speaker analysis failed (attempt 2): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:14:47,515 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:15:35,752 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:15:35,754 WARNING core.gemini_speakers: Gemini (gemini-3.6-flash) speaker analysis failed (attempt 3): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:16:05,772 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:16:36,171 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:16:36,173 WARNING core.gemini_speakers: Gemini (gemini-3.6-flash) speaker analysis failed (attempt 4): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:16:36,173 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:16:44,964 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:16:44,966 WARNING core.gemini_speakers: Gemini (gemini-3.5-flash-lite) speaker analysis failed (attempt 1): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:16:49,970 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:17:09,141 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:17:09,144 WARNING core.gemini_speakers: Gemini (gemini-3.5-flash-lite) speaker analysis failed (attempt 2): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:17:24,155 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:18:14,356 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:18:14,358 WARNING core.gemini_speakers: Gemini (gemini-3.5-flash-lite) speaker analysis failed (attempt 3): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:18:44,374 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:19:08,457 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-11-16 18:19:08,459 WARNING core.gemini_speakers: Gemini (gemini-3.5-flash-lite) speaker analysis failed (attempt 4): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+2026-11-16 18:19:09,770 INFO httpx2: HTTP Request: DELETE https://generativelanguage.googleapis.com/v1/files/4ejf5qs4grt1 "HTTP/1.1 200 OK"
+2026-11-16 18:19:09,774 WARNING core.processing_manager: Gemini could not analyse the speakers - using local pitch detection instead. Reasons: gemini-3.8-flash: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again  | gemini-3.6-flash: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again  | gemini-3.5-flash-lite: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again 
+2026-11-16 18:19:11,557 INFO core.speaker_diarization: Pitch/brightness clustering: asked 2, found 2 speakers
+2026-11-16 18:19:11,558 WARNING core.processing_manager: Split into 2 character(s) by pitch. In Review, play each ~5s sample and set Male/Female so voices stay correct.
+2026-11-16 18:19:13,121 WARNING core.processing_manager: Pitch check moved 8 line(s) to a character of the matching gender, so no line keeps the wrong voice.
+2026-11-16 18:19:13,122 WARNING core.processing_manager: Genders set by pitch rank (lowest→male, highest→female). In Review, play each sample and correct if needed.
+2026-11-16 18:35:46,710 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:35:48,427 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-11-16 18:36:04,360 INFO google_genai.models: AFC is enabled with max remote calls: 10.
+2026-11-16 18:36:05,258 INFO httpx2: HTTP Request: POST https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-11-16 18:36:05,548 WARNING core.processing_manager: 1 line(s) stay longer than their window after re-writing (ids [554]). They are kept in full; shorten them in Review if they overlap.
+2026-11-16 18:36:10,033 WARNING core.background_separator: Demucs failed (code 2):                [--shifts SHIFTS] [--overlap OVERLAP]
+                       [--no-split | --segment SEGMENT] [--two-stems STEM]
+                       [--other-method {none,add,minus}] [--int24 | --float32]
+                       [--clip-mode {rescale,clamp,none}] [--flac | --mp3]
+                       [--mp3-bitrate MP3_BITRATE]
+                       [--mp3-preset {2,3,4,5,6,7}] [-j JOBS]
+                       [tracks ...]
+demucs.separate: error: argument --segment: invalid int value: '7.0'
+
+2026-11-16 18:36:10,048 WARNING core.processing_manager: Dialogue/background separation is not available: the original soundtrack is kept quietly under the Georgian dub, so some ORIGINAL SPEECH may remain faintly audible.
+2026-11-16 18:36:36,076 WARNING core.processing_manager: 107 line(s) are longer than their window even after speed-up (kept in full, may overlap the next line): ids [50, 51, 59, 61, 79, 80, 93, 134, 171, 172, 192, 214, 219, 226, 228]
+2026-11-16 18:36:36,077 WARNING core.processing_manager: Dub audio runs 9913.9s past the end of the video.
+2026-11-16 18:53:02,593 ERROR gui.worker: pipeline error: ffmpeg failed (4294967274): [mp4 @ 0000024d3a230f40] Application provided duration: 3603640000 in stream 2 is invalid
+[vost#0:0/copy @ 0000024d3a235640] Error submitting a packet to the muxer: Invalid argument
+    Last message repeated 1 times
+[out#0/mp4 @ 0000024d3beae600] Error muxing a packet
+[out#0/mp4 @ 0000024d3beae600] Task finished with error: Invalid argument
+[out#0/mp4 @ 0000024d3beae600] Terminating thread with error: Invalid argument
+
+2026-11-16 18:53:25,076 ERROR gui.worker: pipeline error: ffmpeg failed (4294967274): [mp4 @ 000002572dfa78c0] Application provided duration: 3603640000 in stream 2 is invalid
+[aost#0:1/copy @ 000002572dfd69c0] Error submitting a packet to the muxer: Invalid argument
+    Last message repeated 1 times
+[out#0/mp4 @ 000002572dfc1000] Error muxing a packet
+[out#0/mp4 @ 000002572dfc1000] Task finished with error: Invalid argument
+[out#0/mp4 @ 000002572dfc1000] Terminating thread with error: Invalid argument
+
+2026-11-16 19:20:55,214 ERROR app: Unhandled exception
+Traceback (most recent call last):
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\app.py", line 43, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\app.py", line 36, in main
+    from gui.main_window import MainWindow
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\gui\main_window.py", line 22, in <module>
+    from core.processing_manager import STAGES, Pipeline
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\core\processing_manager.py", line 842
+    	    en = min(en, st + 15.0)
+    ^
+TabError: inconsistent use of tabs and spaces in indentation
+
+2026-11-16 19:25:14,629 ERROR app: Unhandled exception
+Traceback (most recent call last):
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\app.py", line 43, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\app.py", line 36, in main
+    from gui.main_window import MainWindow
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\gui\main_window.py", line 22, in <module>
+    from core.processing_manager import STAGES, Pipeline
+ImportError: cannot import name 'STAGES' from 'core.processing_manager' (C:\Users\user\Desktop\NoAdFrame\geo_dubber\core\processing_manager.py)
+
+2026-11-16 19:28:54,015 WARNING core.translation: NO GEMINI KEY: translation will use the word-level web fallback (much lower quality). Set the GEMINI_API_KEY environment variable.
+2026-11-16 19:28:54,016 WARNING core.translation: Failed to initialise Gemini client: no Gemini API key (set gemini_api_key in settings.json or GEMINI_API_KEY)
+2026-11-16 19:28:54,020 ERROR gui.worker: unexpected error
+Traceback (most recent call last):
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\gui\worker.py", line 59, in run
+    self.pipeline = Pipeline(self.project_dir, self.settings, be, self.control, self.progress.emit, self._on_review,
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Pipeline.__init__() got an unexpected keyword argument 'on_characters'
+
+2026-11-16 19:32:09,018 WARNING core.translation: NO GEMINI KEY: translation will use the word-level web fallback (much lower quality). Set the GEMINI_API_KEY environment variable.
+2026-11-16 19:32:09,019 WARNING core.translation: Failed to initialise Gemini client: no Gemini API key (set gemini_api_key in settings.json or GEMINI_API_KEY)
+2026-11-16 19:32:09,021 ERROR gui.worker: unexpected error
+Traceback (most recent call last):
+  File "C:\Users\user\Desktop\NoAdFrame\geo_dubber\gui\worker.py", line 59, in run
+    self.pipeline = Pipeline(self.project_dir, self.settings, be, self.control, self.progress.emit, self._on_review,
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Pipeline.__init__() got an unexpected keyword argument 'on_characters'
+
+2026-11-16 19:33:22,835 WARNING core.translation: NO GEMINI KEY: translation will use the word-level web fallback (much lower quality). Set the GEMINI_API_KEY environment variable.
+2026-11-16 19:33:22,836 WARNING core.translation: Failed to initialise Gemini client: no Gemini API key (set gemini_api_key in settings.json or GEMINI_API_KEY)
+2026-11-16 19:33:45,386 INFO httpx: HTTP Request: GET https://huggingface.co/api/agent-harnesses "HTTP/1.1 200 OK"
+2026-11-16 19:33:45,565 INFO httpx: HTTP Request: GET https://huggingface.co/api/models/Systran/faster-whisper-small/revision/main "HTTP/1.1 200 OK"
+2026-11-16 19:33:49,236 INFO faster_whisper: Processing audio with duration 10:05.000
+2026-11-16 19:33:51,508 INFO faster_whisper: VAD filter removed 06:23.514 of audio
+2026-11-16 19:33:57,215 INFO faster_whisper: Detected language 'en' with probability 0.88
+2026-11-16 19:35:40,430 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:35:43,232 INFO faster_whisper: VAD filter removed 05:11.408 of audio
+2026-11-16 19:38:02,898 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:38:05,154 INFO faster_whisper: VAD filter removed 05:31.062 of audio
+2026-11-16 19:39:47,038 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:39:50,075 INFO faster_whisper: VAD filter removed 04:58.422 of audio
+2026-11-16 19:42:07,045 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:42:09,631 INFO faster_whisper: VAD filter removed 05:53.358 of audio
+2026-11-16 19:44:05,406 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:44:07,772 INFO faster_whisper: VAD filter removed 05:32.828 of audio
+2026-11-16 19:46:44,541 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:46:47,522 INFO faster_whisper: VAD filter removed 04:12.008 of audio
+2026-11-16 19:49:12,941 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:49:15,074 INFO faster_whisper: VAD filter removed 07:53.344 of audio
+2026-11-16 19:50:11,996 INFO faster_whisper: Processing audio with duration 10:10.000
+2026-11-16 19:50:14,069 INFO faster_whisper: VAD filter removed 07:56.090 of audio
+2026-11-16 19:51:32,090 INFO faster_whisper: Processing audio with duration 07:20.115
+2026-11-16 19:51:33,691 INFO faster_whisper: VAD filter removed 05:13.093 of audio
+2026-11-16 19:53:01,458 INFO core.speaker_diarization: Pitch/brightness clustering: asked 2, found 2 speakers
+2026-11-16 19:53:01,460 WARNING core.processing_manager: Split into 2 character(s) by pitch. In Review, play each ~5s sample and set Male/Female so voices stay correct.
+2026-11-16 20:01:32,341 WARNING core.background_separator: Demucs failed (code 2):                [--shifts SHIFTS] [--overlap OVERLAP]
+                       [--no-split | --segment SEGMENT] [--two-stems STEM]
+                       [--other-method {none,add,minus}] [--int24 | --float32]
+                       [--clip-mode {rescale,clamp,none}] [--flac | --mp3]
+                       [--mp3-bitrate MP3_BITRATE]
+                       [--mp3-preset {2,3,4,5,6,7}] [-j JOBS]
+                       [tracks ...]
+demucs.separate: error: argument --segment: invalid int value: '7.0'
+
+2026-11-16 20:01:32,354 WARNING core.processing_manager: Dialogue/background separation is not available: the original soundtrack is kept quietly under the Georgian dub, so some ORIGINAL SPEECH may remain faintly audible.
+2026-11-16 20:01:52,086 WARNING core.processing_manager: 62 line(s) are longer than their window even after speed-up (kept in full, may overlap the next line): ids [7, 11, 12, 25, 29, 31, 42, 43, 46, 48, 52, 63, 64, 65, 66]

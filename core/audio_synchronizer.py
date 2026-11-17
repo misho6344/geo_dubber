@@ -31,22 +31,25 @@ class Placement:
 
 
 def plan_placements(items: list[dict], max_speedup: float = 1.3, max_spill: float = 1.5,
-                    min_gap: float = 0.05) -> list[Placement]:
+                    min_gap: float = 0.05, max_shift: float = 0.35) -> list[Placement]:
     """items: dicts with id, start, end, duration (TTS clip length), speaker_id.
 
-    Rules: keep the original start; same speaker never overlaps themself; a clip may use
-    up to `max_spill` seconds of silence after its original window (never into the next
-    line); otherwise speed up to `max_speedup`; anything still too long is placed in full
-    (never truncated or dropped) and reported via `overflow`."""
+    Rules: anchor near original start (capped at max_shift so delays never snowball across
+    the video); a clip may use up to `max_spill` seconds of silence after its original window
+    (never into the next line); otherwise speed up to `max_speedup`; anything still too long
+    is placed in full (never truncated or dropped) and reported via `overflow`."""
     items = sorted(items, key=lambda i: (i["start"], i["end"]))
     cursor: dict[str, float] = {}
     out: list[Placement] = []
     for idx, it in enumerate(items):
-        start = max(it["start"], cursor.get(it["speaker_id"], 0.0))
-        nxt = next((j["start"] for j in items[idx + 1:] if j["start"] > start + 1e-6), None)
-        limit = it["end"] + max_spill
+        orig_start = float(it["start"])
+        prev_end = cursor.get(it["speaker_id"], 0.0)
+        # Allow at most `max_shift` seconds push so long lines never cascade out of sync
+        start = orig_start if prev_end <= orig_start else min(prev_end, orig_start + max_shift)
+        nxt = next((float(j["start"]) for j in items[idx + 1:] if float(j["start"]) > start + 1e-6), None)
+        limit = float(it["end"]) + max_spill
         if nxt is not None:
-            limit = min(limit, max(it["end"], nxt - min_gap))
+            limit = min(limit, max(float(it["end"]), nxt - min_gap))
         avail = max(limit - start, 0.05)
         dur = float(it["duration"])
         speed = 1.0 if dur <= avail else min(dur / avail, max_speedup)
@@ -88,9 +91,10 @@ def render_dub_track(placements: list[Placement], out_path: str | Path, total_du
                      on_progress: Optional[Callable[[float], None]] = None,
                      control: Optional[Control] = None) -> float:
     """Render all clips into one mono WAV block by block (memory stays ~1 block).
-    Returns the final track duration (extended if dialogue runs past the video end)."""
+    Returns the final track duration (clamped to video duration if total_duration > 0)."""
     placements = sorted(placements, key=lambda p: p.start)
-    total = max([total_duration] + [p.end for p in placements])
+    max_p_end = max([p.end for p in placements], default=0.0)
+    total = total_duration if total_duration > 0 else max_p_end
     n_blocks = max(1, math.ceil(total / block_s))
     loaded: dict[int, np.ndarray] = {}
     with WavWriter(out_path, sr, 1) as w:
