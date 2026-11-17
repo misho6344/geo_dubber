@@ -11,6 +11,11 @@ APP_NAME = "GeoDubber"
 APP_VERSION = "0.1.1"
 
 
+def get_gemini_api_key() -> str:
+    """Return the Gemini credential from the process environment only."""
+    return os.environ.get("GEMINI_API_KEY", "").strip()
+
+
 def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -88,7 +93,6 @@ class Settings:
     speaker2_gender: str = "auto"
     speaker3_gender: str = "auto"
     speaker4_gender: str = "auto"
-    gemini_api_key: str = ""                    # prefer the GEMINI_API_KEY environment variable; a key here is stored in plain text
     hf_token: str = ""                          # needed for gated pyannote models; stored locally only
     app_language: str = "English"
     review_translation: bool = True
