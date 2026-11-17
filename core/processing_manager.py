@@ -14,6 +14,8 @@ from typing import Callable, Optional
 from config.settings import APP_VERSION, Settings
 from core import audio_extractor as AX
 from core import speaker_diarization as SD
+from core import gemini_speakers as GS
+from core import speaker_tracks as ST
 from core import subtitles as SUB
 from core import video_loader as VL
 from core.audio_io import wav_duration
@@ -57,6 +59,7 @@ class Progress:
     eta_seconds: Optional[float] = None       # only for the CURRENT stage, only when it can be estimated
     speed: str = ""
     stage_status: dict = field(default_factory=dict)
+    total_eta_seconds: Optional[float] = None  # estimated time remaining for the whole project
 
 
 @dataclass
@@ -150,7 +153,21 @@ class Pipeline:
                 done_w += w * frac
         elapsed = time.time() - self._stage_t0
         eta = (elapsed * (1 - frac) / frac) if (frac >= 0.05 and elapsed >= 10) else None
-        self.on_progress(Progress(self._stage_key, label, frac, done_w / total_w if total_w else 0.0, message, eta, speed, status))
+        overall = done_w / total_w if total_w else 0.0
+        timings = self.state.get("timings") or {}
+        done_keys = set(self.state.get("done") or [])
+        measured_elapsed = sum(
+            max(0.0, float(timings.get(k, 0.0) or 0.0))
+            for k in done_keys if k != "review"
+        )
+        if self._stage_key and self._stage_key != "review" and self._stage_key not in done_keys:
+            measured_elapsed += max(0.0, elapsed)
+        total_eta = None
+        if overall >= 0.03 and measured_elapsed >= 8.0:
+            total_eta = max(0.0, measured_elapsed * (1.0 - overall) / overall)
+        self.on_progress(Progress(
+            self._stage_key, label, frac, overall, message, eta, speed, status, total_eta
+        ))
 
     def _begin(self, key: str) -> None:
         self._stage_key, self._stage_t0 = key, time.time()
@@ -209,107 +226,161 @@ class Pipeline:
         raw = [dict(s) for s in self.state["raw_segments"]]
         a16 = self.work / "audio16k.wav"
         turns: list = []
-        want = int(getattr(self.s, "speaker_count", 0) or 0)
-        if want <= 0:
-            want = 2  # auto default; user can set 3 or 4 in Options
+        requested_want = int(getattr(self.s, "speaker_count", 0) or 0)
+        fallback_want = requested_want or 2
+        gemini_speaker_info: dict = {}
+        used_gemini = False
 
         if self.s.auto_speakers:
-            if (self.s.hf_token or "").strip():
-                try:
-                    turns = self.be.diarizer.diarize(a16)
-                except CancelledError:
-                    raise
-                except GeoDubberError as e:
-                    self.warn(f"Speaker model failed ({e.user_message}). Using local pitch clustering.")
-                except Exception as e:
-                    log.exception("diarization failed")
-                    self.warn(f"Speaker model failed ({e}). Using local pitch clustering.")
-            n_spk = len({t[2] for t in turns}) if turns else 0
-            # Prefer model only if it found at least as many speakers as requested
-            if n_spk >= max(2, want):
-                self._emit(0.5, "assigning speakers")
-                SD.assign_speakers(raw, turns)
-            else:
-                self._emit(0.4, "clustering speakers by pitch")
-                SD.cluster_segments_by_pitch(raw, a16, n_speakers=want)
-                # Build synthetic turns for preview/stabilize compatibility
-                turns = []
-                for s in raw:
-                    turns.append((float(s["start"]), float(s["end"]), s["speaker_id"]))
-                self.warn(
-                    f"Split into {want} character(s) by pitch. "
-                    "In Review, play each ~5s sample and set Male/Female so voices stay correct."
+            # Gemini analyses the actual audio and transcript together. This is more useful for
+            # voice-gender selection than assigning gender from a single pitch threshold.
+            client = GS.make_client()
+            if client is not None:
+                self._emit(0.15, "analysing character voices with Gemini")
+                errors: list[str] = []
+                result = GS.analyze_speakers(
+                    client,
+                    self.work / "audio.wav",
+                    raw,
+                    want=requested_want,
+                    control=self.control,
+                    errors=errors,
                 )
+                if result and len(result.get("lines", [])) == len(raw):
+                    gemini_speaker_info = result.get("speakers") or {}
+                    for segment, speaker_id in zip(raw, result["lines"]):
+                        segment["speaker_id"] = speaker_id
+                    used_gemini = True
+                    self.warn(
+                        "Gemini analysed speaker turns and perceived voice gender from the original audio. "
+                        "Confirm each sample in Review before voice generation."
+                    )
+                else:
+                    reason = errors[0] if errors else "Gemini returned an incomplete speaker map"
+                    self.warn(f"Gemini speaker analysis was unavailable ({reason[:180]}). Using local speaker detection.")
+
+            if not used_gemini:
+                if (self.s.hf_token or "").strip():
+                    try:
+                        turns = self.be.diarizer.diarize(a16)
+                    except CancelledError:
+                        raise
+                    except GeoDubberError as e:
+                        self.warn(f"Speaker model failed ({e.user_message}). Using local pitch clustering.")
+                    except Exception as e:
+                        log.exception("diarization failed")
+                        self.warn(f"Speaker model failed ({e}). Using local pitch clustering.")
+                n_spk = len({t[2] for t in turns}) if turns else 0
+                if n_spk >= max(2, fallback_want):
+                    self._emit(0.5, "assigning speakers")
+                    SD.assign_speakers(raw, turns)
+                else:
+                    self._emit(0.4, "clustering speakers by pitch")
+                    SD.cluster_segments_by_pitch(raw, a16, n_speakers=fallback_want)
+                    turns = []
+                    for segment in raw:
+                        turns.append((float(segment["start"]), float(segment["end"]), segment["speaker_id"]))
+                    self.warn(
+                        f"Split into {fallback_want} character(s) by pitch. "
+                        "This is an acoustic estimate; listen to each sample and confirm Male/Female in Review."
+                    )
+            else:
+                self._emit(0.65, "Gemini speaker analysis completed")
         else:
             self.warn("Automatic speaker detection is off: all dialogue is treated as ONE speaker.")
-            for sg in raw:
-                sg["speaker_id"], sg["speaker_confidence"] = "speaker_1", 0.0
+            for segment in raw:
+                segment["speaker_id"], segment["speaker_confidence"] = "speaker_1", 0.0
             turns = []
 
         self._emit(0.55, "assigning speakers")
-        if turns and any(not s.get("speaker_id") for s in raw):
+        if turns and any(not segment.get("speaker_id") for segment in raw):
             SD.assign_speakers(raw, turns)
         merged = SD.merge_minor_speakers(raw, self.s.min_speaker_seconds)
         if merged:
             self.warn(f"Merged {len(merged)} very short speaker(s) into neighbours: {merged}")
         segs = merge_fragments(raw)
-        # Re-cluster fragments if we still have too few distinct speakers vs requested
-        n_now = len({s["speaker_id"] for s in segs})
-        if self.s.auto_speakers and n_now < want:
-            SD.cluster_segments_by_pitch(segs, a16, n_speakers=want)
-            n_now = len({s["speaker_id"] for s in segs})
+        n_now = len({segment["speaker_id"] for segment in segs})
+        if self.s.auto_speakers and not used_gemini and n_now < fallback_want:
+            SD.cluster_segments_by_pitch(segs, a16, n_speakers=fallback_want)
+
         self.state["speakers"] = SD.estimate_speaker_genders(segs, a16)
+        if used_gemini:
+            for speaker_id, model_info in gemini_speaker_info.items():
+                info_row = self.state["speakers"].get(speaker_id)
+                gender = str(model_info.get("gender", "")).lower()
+                if info_row is not None and gender in {"male", "female"}:
+                    info_row["gender"] = gender
+                    info_row["gender_source"] = "gemini"
+                    if model_info.get("gender_confidence") is not None:
+                        try:
+                            info_row["gender_confidence"] = max(0.0, min(1.0, float(model_info["gender_confidence"])))
+                        except (TypeError, ValueError):
+                            pass
+
         # User pre-set genders: Character 1..4 by speech duration rank
         forced = []
         for key in ("speaker1_gender", "speaker2_gender", "speaker3_gender", "speaker4_gender"):
-            g = (getattr(self.s, key, "auto") or "auto").lower()
-            if g in ("male", "female"):
-                forced.append(g)
+            gender = (getattr(self.s, key, "auto") or "auto").lower()
+            if gender in ("male", "female"):
+                forced.append(gender)
         by_speech = sorted(
             self.state["speakers"].items(),
             key=lambda kv: -float(kv[1].get("speech_seconds") or 0),
         )
         if forced:
-            for (spk, info), gender in zip(by_speech, forced):
-                info["gender"] = gender
-                info["gender_confidence"] = 1.0
-                info["gender_source"] = "user"
+            for (speaker_id, speaker_info), gender in zip(by_speech, forced):
+                speaker_info["gender"] = gender
+                speaker_info["gender_confidence"] = 1.0
+                speaker_info["gender_source"] = "user"
             self.warn(
                 "Using your pre-set character genders: "
                 + ", ".join(
-                    f"{self.state['speakers'][s]['label']}={self.state['speakers'][s]['gender']}"
-                    for s, _ in by_speech[: len(forced)]
+                    f"{self.state['speakers'][speaker_id]['label']}={self.state['speakers'][speaker_id]['gender']}"
+                    for speaker_id, _ in by_speech[: len(forced)]
                 )
             )
-        else:
-            # Heuristic only when user did not set genders: lower median F0 -> male
-            for spk, info in self.state["speakers"].items():
-                if info.get("gender") == "unknown" and info.get("f0"):
-                    info["gender"] = "male" if float(info["f0"]) < 165 else "female"
-                    info["gender_confidence"] = max(0.35, float(info.get("gender_confidence") or 0))
+
+        # The local pitch stabilizer corrects isolated line swaps, but never overrides a
+        # manually confirmed gender. Gemini's full-audio speaker map is kept intact.
+        if not used_gemini:
+            try:
+                self.state["speakers"], messages = ST.stabilise(segs, a16, self.state["speakers"])
+                for message in messages:
+                    self.warn(message)
+            except Exception:
+                log.exception("speaker pitch stabilisation failed")
+
         self.state["segments"] = segs
         self._assign()
         # Ensure male speakers actually got male voices (and female → female)
         voices = {v.id: v for v in self.all_voices()}
         used = set()
-        # Prefer distinctly different male variants so two men are not identical
         male_pref = ["edge_ka_giorgi", "edge_ka_giorgi_deep", "edge_ka_giorgi_high"]
         female_pref = ["edge_ka_eka", "edge_ka_eka_warm", "edge_ka_eka_bright"]
-        for spk, info in sorted(self.state["speakers"].items(), key=lambda kv: -float(kv[1].get("speech_seconds") or 0)):
-            g = info.get("gender")
-            vid = self.state["assignments"].get(spk)
-            ok = vid and vid in voices and vid not in used and (g not in ("male", "female") or voices[vid].gender == g)
-            if ok:
-                used.add(vid)
+        for speaker_id, speaker_info in sorted(
+            self.state["speakers"].items(),
+            key=lambda kv: -float(kv[1].get("speech_seconds") or 0),
+        ):
+            gender = speaker_info.get("gender")
+            voice_id = self.state["assignments"].get(speaker_id)
+            valid = (
+                voice_id and voice_id in voices and voice_id not in used
+                and (gender not in ("male", "female") or voices[voice_id].gender == gender)
+            )
+            if valid:
+                used.add(voice_id)
                 continue
-            pref = male_pref if g == "male" else female_pref if g == "female" else []
-            pool = [voices[i] for i in pref if i in voices and i not in used]
+            preferred = male_pref if gender == "male" else female_pref if gender == "female" else []
+            pool = [voices[voice] for voice in preferred if voice in voices and voice not in used]
             if not pool:
-                pool = [v for v in self.all_voices() if v.id not in used and (g not in ("male", "female") or v.gender == g)]
-            if not pool and g in ("male", "female"):
-                pool = [v for v in self.all_voices() if v.gender == g]
+                pool = [
+                    voice for voice in self.all_voices()
+                    if voice.id not in used and (gender not in ("male", "female") or voice.gender == gender)
+                ]
+            if not pool and gender in ("male", "female"):
+                pool = [voice for voice in self.all_voices() if voice.gender == gender]
             if pool:
-                self.state["assignments"][spk] = pool[0].id
+                self.state["assignments"][speaker_id] = pool[0].id
                 used.add(pool[0].id)
 
     def all_voices(self) -> list[Voice]:
