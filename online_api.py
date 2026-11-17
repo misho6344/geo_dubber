@@ -128,8 +128,6 @@ def _validate_options(raw: Any) -> dict:
     style = str(raw.get("translationStyleNote", "") or "").strip()
     if len(style) > 1200:
         raise HTTPException(400, "თარგმნის სტილის აღწერა ზედმეტად გრძელია.")
-    if bool(raw.get("preserveBackground", False)):
-        raise HTTPException(400, "უფასო სერვერზე Demucs ფონური აუდიოს გამოყოფა გამორთულია.")
     def number(name: str, default: float, low: float, high: float) -> float:
         try:
             value = float(raw.get(name, default))
@@ -181,6 +179,7 @@ def _run_job(job_id: str) -> None:
     from config.settings import Settings
     from core.errors import CancelledError
     from core.ffmpeg_utils import Control
+    from core.background_separator import FallbackSeparator
     from core.processing_manager import Pipeline, default_backends
 
     with _lock:
@@ -303,7 +302,10 @@ def _run_job(job_id: str) -> None:
 
     try:
         backends, device_note = default_backends(settings, project_dir)
-        LOG.info("Starting GeoDubber job %s using %s", job_id, device_note)
+        # The online profile intentionally mirrors the desktop fallback path without loading Demucs.
+        # It keeps the original soundtrack quietly under the dub and ducks it while Georgian speech plays.
+        backends.separator = FallbackSeparator()
+        LOG.info("Starting GeoDubber job %s using %s (no-Demucs background fallback)", job_id, device_note)
         pipeline = Pipeline(
             project_dir,
             settings,
