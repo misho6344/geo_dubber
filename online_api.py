@@ -619,12 +619,12 @@ async def import_video_url(
         raise HTTPException(400, "შეიყვანე სწორი ვიდეოს ბმული.")
     from urllib.parse import urlparse
     parsed = urlparse(source_url)
-    if parsed.scheme.lower() == "magnet":
-        raise HTTPException(415, "Magnet/Torrent ბმულები არ არის მხარდაჭერილი. გამოიყენე ატვირთული ვიდეო ან პირდაპირი HTTPS ბმული იმ მასალაზე, რომლის გამოყენების უფლებაც გაქვს.")
+    if parsed.scheme.lower() not in {"magnet", "https"}:
+        raise HTTPException(415, "მხარდაჭერილია Magnet ბმული, YouTube HTTPS ბმული ან პირდაპირი HTTPS ვიდეოფაილი.")
     with _lock:
         job["status"] = "downloading"
         job["message"] = "ვიდეოს ბმული მიღებულია. ჩამოტვირთვა იწყება."
-        job["sourceUrlType"] = "youtube" if (parsed.hostname or "").lower().removeprefix("www.") in {"youtube.com", "m.youtube.com", "youtu.be"} else "direct"
+        job["sourceUrlType"] = "torrent" if parsed.scheme.lower() == "magnet" else ("youtube" if (parsed.hostname or "").lower().removeprefix("www.") in {"youtube.com", "m.youtube.com", "youtu.be"} else "direct")
         job["downloadProgress"] = {"downloadedBytes": 0, "totalBytes": 0, "fraction": 0.0, "state": "starting"}
         job["progress"] = {
             "overall": 0.0,
