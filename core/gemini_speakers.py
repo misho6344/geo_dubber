@@ -133,7 +133,7 @@ def normalize(data: dict, segments: list[dict]) -> Optional[dict]:
     raw_lines = data.get("lines")
     if not isinstance(raw_spk, list) or not raw_spk or not isinstance(raw_lines, list):
         return None
-    gender_of: dict[str, str] = {}
+    gender_of: dict[str, tuple[str, float]] = {}
     for sp in raw_spk:
         if not isinstance(sp, dict):
             continue
