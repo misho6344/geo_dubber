@@ -405,7 +405,8 @@ class Pipeline:
         total = len([s for s in segs if not s.get("translation") or not is_valid_georgian(s.get("translation"))]) or 1
         translate_segments(self.be.translator, segs, self.state["language"], self.s.translation_batch,
                            self.state.get("glossary"),
-                           on_batch=lambda d, t: (self.save(), self._emit(d / t, f"{d}/{t} segments")), control=self.control)
+                           on_batch=lambda d, t, msg=None: (self.save(), self._emit(d / t, msg or f"{d}/{t} segments")),
+                           control=self.control)
         for s in segs:
             s["too_long"] = estimate_speech_seconds(s["translation"]) > (s["end"] - s["start"]) * self.s.max_speedup + self.s.max_spill_seconds
         n_long = sum(1 for s in segs if s["too_long"])
