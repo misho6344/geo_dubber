@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: geodubber-online
+    runtime: docker
+    plan: standard
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    maxShutdownDelaySeconds: 300
+    disk:
+      name: geodubber-data
+      mountPath: /var/data
+      sizeGB: 50
+    envVars:
+      - key: GEODUBBER_HOME
+        value: /var/data/geodubber
+      - key: GEODUBBER_API_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: GEODUBBER_MAX_UPLOAD_BYTES
+        value: "8589934592"
+      - key: LOG_LEVEL
+        value: INFO
