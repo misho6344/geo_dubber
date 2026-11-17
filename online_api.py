@@ -435,7 +435,7 @@ def healthz() -> dict:
 def status(authorization: str | None = Header(default=None)) -> dict:
     _require_api_key(authorization)
     with _lock:
-        active = sum(1 for j in _jobs.values() if j.get("status") in {"queued", "running", "paused", "review_required"})
+        active = sum(1 for j in _jobs.values() if j.get("status") in {"queued", "downloading", "running", "paused", "review_required"})
         return {
             "ok": True,
             "activeJobs": active,
