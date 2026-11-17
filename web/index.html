@@ -233,7 +233,7 @@ function toast(msg){$("toast").textContent=msg;$("toast").classList.add("show");
 function log(msg){const el=$("log");el.textContent+="\n"+new Date().toLocaleTimeString()+"  "+msg;el.scrollTop=el.scrollHeight}
 function show(id){$(id).classList.add("show")}
 function hide(id){$(id).classList.remove("show")}
-document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>hide(b.dataset.close)));
+document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>{hide(b.dataset.close);if(b.dataset.close==="reviewModal")reviewData=null;}));
 function fmtBytes(n){if(!n)return "";let u=["B","KB","MB","GB"],i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i?1:0)+" "+u[i]}
 function fmtTime(v){let n=Math.max(0,Math.floor(Number(v)||0));let h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;return h?h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):m+":"+String(s).padStart(2,"0")}
 function authHeaders(extra){const h=extra||{};if(token)h.Authorization="Bearer "+token;return h}
