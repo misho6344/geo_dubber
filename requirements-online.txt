@@ -1,19 +1,14 @@
-# Online GeoDubber API runtime (CPU-first; no PySide6 desktop UI).
-# PyTorch CPU is installed separately by Dockerfile before this file.
-fastapi>=0.110
-uvicorn[standard]>=0.27
+# Lightweight online API runtime for the Oracle ARM CPU profile.
+# PyTorch / Transformers / F5-TTS / Demucs are intentionally excluded.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
 python-multipart>=0.0.9
 edge-tts>=6.1
 google-genai>=1.0
-soundfile>=0.12
-numpy>=1.26
-scipy>=1.11
+soundfile>=0.12,<1
+numpy>=1.26,<3
+scipy>=1.11,<2
 psutil>=5.9
 requests>=2.31
-yt-dlp>=2024.1.1
 huggingface_hub>=0.23
-faster-whisper>=1.0
-transformers>=4.40
-sentencepiece>=0.2
-f5-tts>=1.0
-demucs>=4.0
+faster-whisper>=1.0,<2
