@@ -116,8 +116,8 @@ def _validate_options(raw: Any) -> dict:
     if priority not in {"fast", "balanced", "quality"}:
         raise HTTPException(400, "დამუშავების პრიორიტეტი არასწორია.")
     tts = str(raw.get("ttsEngine", "edge_georgian"))
-    if tts not in {"edge_georgian", "f5_georgian", "piper_ka", "mms_kat"}:
-        raise HTTPException(400, "ხმოვანი ძრავა არასწორია.")
+    if tts != "edge_georgian":
+        raise HTTPException(400, "უფასო ონლაინ სერვერზე ხელმისაწვდომია მხოლოდ Edge Georgian ხმა.")
     speakers = int(raw.get("speakerCount", 0) or 0)
     if speakers not in {0, 1, 2, 3, 4}:
         raise HTTPException(400, "პერსონაჟების რაოდენობა უნდა იყოს 0-დან 4-მდე.")
@@ -127,6 +127,8 @@ def _validate_options(raw: Any) -> dict:
     style = str(raw.get("translationStyleNote", "") or "").strip()
     if len(style) > 1200:
         raise HTTPException(400, "თარგმნის სტილის აღწერა ზედმეტად გრძელია.")
+    if bool(raw.get("preserveBackground", False)):
+        raise HTTPException(400, "უფასო სერვერზე Demucs ფონური აუდიოს გამოყოფა გამორთულია.")
     return {
         "priority": priority,
         "tts_engine": tts,
