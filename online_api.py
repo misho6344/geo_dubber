@@ -191,10 +191,11 @@ def _validate_options(raw: Any) -> dict:
         "translation_style_note": style,
         "preserve_background": bool(raw.get("preserveBackground", False)),
         "auto_speakers": bool(raw.get("autoSpeakers", True)),
-        "georgian_subtitles": bool(raw.get("georgianSubtitles", True)),
-        "original_subtitles": bool(raw.get("originalSubtitles", False)),
+        "georgian_subtitles": False,
+        "original_subtitles": False,
+        "export_subtitle_files": False,
         "review_translation": bool(raw.get("reviewTranslation", True)),
-        "burn_subtitles": bool(raw.get("burnSubtitles", False)),
+        "burn_subtitles": False,
         "original_dialogue_volume": number("originalDialogueVolume", 0.0, 0.0, 1.0),
         "voice_volume": number("voiceVolume", 1.0, 0.0, 2.0),
         "background_volume": number("backgroundVolume", 1.0, 0.0, 2.0),
@@ -240,10 +241,11 @@ def _run_job(job_id: str) -> None:
     settings.tts_engine = options["tts_engine"]
     settings.preserve_background = options["preserve_background"]
     settings.auto_speakers = options["auto_speakers"]
-    settings.georgian_subtitles = options["georgian_subtitles"]
+    settings.georgian_subtitles = False
+    settings.export_subtitle_files = False
     settings.original_subtitles = options["original_subtitles"]
     settings.review_translation = options["review_translation"]
-    settings.burn_subtitles = options["burn_subtitles"]
+    settings.burn_subtitles = False
     settings.speaker_count = options["speaker_count"]
     settings.translation_batch = options["translation_batch"]
     settings.translation_style_note = options["translation_style_note"]
@@ -1038,6 +1040,8 @@ def get_segments(job_id: str, authorization: str | None = Header(default=None)) 
 def download_subtitles(job_id: str, kind: str, authorization: str | None = Header(default=None)):
     _require_api_key(authorization)
     job = _job_or_404(job_id)
+    if not job.get("options", {}).get("export_subtitle_files", True):
+        raise HTTPException(404, "ამ პროექტისთვის სუბტიტრების ექსპორტი გამორთულია.")
     if job.get("status") != "completed":
         raise HTTPException(409, "სუბტიტრები დასრულებული პროექტისთვის იქნება ხელმისაწვდომი.")
     if kind not in {"georgian", "original"}:
