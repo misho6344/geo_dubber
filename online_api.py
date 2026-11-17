@@ -244,7 +244,14 @@ def _run_job(job_id: str) -> None:
                 }
                 for s in (pl.state.get("segments") or [])
             ],
-            "speakers": pl.state.get("speakers") or {},
+            "speakers": {
+                sid: {
+                    key: info.get(key)
+                    for key in ("label", "gender", "gender_confidence", "speech_seconds", "f0", "gender_source")
+                    if key in info
+                }
+                for sid, info in (pl.state.get("speakers") or {}).items()
+            },
             "assignments": pl.state.get("assignments") or {},
             "voices": voice_rows,
         }
