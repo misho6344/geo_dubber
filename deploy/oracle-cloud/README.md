@@ -7,7 +7,7 @@ This deployment keeps the Admin Panel on Render and runs the GeoDubber CPU API o
 - Oracle Always Free availability is capacity-dependent. The advertised Ampere A1 Always Free allowance is up to 2 OCPUs and 12 GB RAM in total, subject to the current Oracle account terms and regional capacity.
 - This is CPU-only. It is intended for initial online testing and one job at a time, not fast 1–3 hour film processing. Measure actual runtimes before relying on it.
 - Keep the instance within Always Free limits. Oracle may reclaim idle Always Free compute under its published idle-instance policy. Always Free is not a contractual uptime guarantee.
-- You need an Oracle Cloud account and a hostname under a domain/DNS zone you control. A hostname is needed for Caddy-managed HTTPS; do not send the API token over plain HTTP.
+- You need an Oracle Cloud account and a hostname for HTTPS. You can use your own domain or the free IP-based hostname `YOUR_PUBLIC_IP.nip.io`; the nip.io service maps that name to the embedded IP address. Do not send the API token over plain HTTP.
 - Do not store secrets in GitHub. The Admin Panel and GeoDubber must use the exact same random API token.
 
 ## 1. Create the VM
@@ -69,7 +69,7 @@ Add the public key from `cat ~/.ssh/geodubber_deploy_key.pub` to GitHub as a rea
 
 ## 5. Configure DNS, secrets, and HTTPS
 
-Create an A record for your chosen hostname pointing to the VM public IPv4. Wait for DNS to resolve before starting Caddy.
+For the simplest free setup, use `YOUR_PUBLIC_IP.nip.io` as `GEODUBBER_DOMAIN` (replace `YOUR_PUBLIC_IP` with the VM's dotted IPv4, e.g. `198.51.100.25.nip.io`). nip.io resolves the hostname to that IP automatically. Alternatively, create your own A record. Wait for DNS to resolve before starting Caddy. Public CAs can issue a certificate for a hostname like this using HTTP validation; Caddy manages renewal.
 
 ```bash
 cp .env.example .env
