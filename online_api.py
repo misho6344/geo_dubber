@@ -574,6 +574,9 @@ async def save_review(job_id: str, request: Request, authorization: str | None =
         translation = str(change.get("translation", ""))[:2000].strip()
         seg["translation"] = translation
         seg["mt_source"] = "manual"
+        speaker_id = str(change.get("speakerId", "") or "")
+        if SPEAKER_ID_RE.fullmatch(speaker_id):
+            seg["speaker_id"] = speaker_id
     speaker_changes = payload.get("speakers", {})
     if isinstance(speaker_changes, dict):
         for speaker_id, update in speaker_changes.items():
