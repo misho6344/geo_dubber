@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from core.ffmpeg_utils import Control, run_ffmpeg
+from config.settings import get_gemini_api_key
 
 log = logging.getLogger(__name__)
 
@@ -53,12 +54,16 @@ def _wait(seconds: float, sleep: Callable[[float], None], control: Optional[Cont
         left -= step
 
 
-def make_client(api_key: str, timeout_ms: int = 600000):
-    """A client with a long timeout (audio upload + analysis)."""
+def make_client(api_key: str | None = None, timeout_ms: int = 600000):
+    """Create a Gemini client using an explicit key or GEMINI_API_KEY from the environment."""
+    resolved_key = (api_key or get_gemini_api_key()).strip()
+    if not resolved_key:
+        log.warning("GEMINI_API_KEY is not configured; Gemini speaker analysis is unavailable.")
+        return None
     try:
         from google import genai
         return genai.Client(
-            api_key=api_key,
+            api_key=resolved_key,
             http_options={"timeout": timeout_ms}
         )
     except Exception as e:
