@@ -537,9 +537,14 @@ async def upload_video(job_id: str, request: Request, authorization: str | None 
 
 def _run_url_import(job_id: str, source_url: str) -> None:
     """Download an authorized source URL, then hand the file to the normal pipeline."""
-    from core.url_import import VideoUrlError, download_video_url
+    from core.url_import import VideoUrlCancelled, VideoUrlError, download_video_url
     job = _job_or_404(job_id)
     folder = _job_dir(job_id)
+
+    def is_cancelled() -> bool:
+        with _lock:
+            current = _jobs.get(job_id)
+            return not current or current.get("status") in {"cancelled", "cancelling"}
 
     def on_download(downloaded: int, total: int, state: str) -> None:
         with _lock:
@@ -566,7 +571,7 @@ def _run_url_import(job_id: str, source_url: str) -> None:
 
     try:
         on_download(0, 0, "starting")
-        source_path = download_video_url(source_url, folder, MAX_UPLOAD_BYTES, on_download)
+        source_path = download_video_url(source_url, folder, MAX_UPLOAD_BYTES, on_download, is_cancelled)
         if not source_path.is_file():
             raise VideoUrlError("ვიდეოს ჩამოტვირთვა დასრულდა, მაგრამ ფაილი ვერ მოიძებნა.")
         with _lock:
@@ -589,15 +594,29 @@ def _run_url_import(job_id: str, source_url: str) -> None:
             _controls[job_id] = Control()
             _save_job(job_id)
         _run_job(job_id)
+    except VideoUrlCancelled:
+        with _lock:
+            current = _jobs.get(job_id)
+            if current:
+                current["status"] = "cancelled"
+                current["message"] = "ჩამოტვირთვა გაუქმებულია. პროექტის წაშლა ახლა შეგიძლია."
+                current["downloadProgress"] = {**(current.get("downloadProgress") or {}), "state": "cancelled"}
+                _save_job(job_id)
+        shutil.rmtree(folder / "_torrent_download", ignore_errors=True)
     except Exception as exc:
         LOG.exception("GeoDubber URL import failed for job %s", job_id)
         with _lock:
             current = _jobs.get(job_id)
             if current:
-                current["status"] = "failed"
-                current["error"] = str(exc)[:1200]
-                current["message"] = "ვიდეოს ბმულიდან მიღება ვერ მოხერხდა."
+                if current.get("status") in {"cancelled", "cancelling"}:
+                    current["status"] = "cancelled"
+                    current["message"] = "ჩამოტვირთვა გაუქმებულია. პროექტის წაშლა ახლა შეგიძლია."
+                else:
+                    current["status"] = "failed"
+                    current["error"] = str(exc)[:1200]
+                    current["message"] = "ვიდეოს ბმულიდან მიღება ვერ მოხერხდა."
                 _save_job(job_id)
+        shutil.rmtree(folder / "_torrent_download", ignore_errors=True)
 
 
 @app.post("/v1/jobs/{job_id}/source-url")
@@ -796,8 +815,19 @@ def cancel_job(job_id: str, authorization: str | None = Header(default=None)) ->
     _require_api_key(authorization)
     job = _job_or_404(job_id)
     with _lock:
+        status = job.get("status")
+        if status == "upload_pending":
+            job["status"] = "cancelled"
+            job["message"] = "პროექტი გაუქმებულია. წაშლა ახლა შეგიძლია."
+            _save_job(job_id)
+            return _public_job(job)
+        if status == "downloading":
+            job["status"] = "cancelling"
+            job["message"] = "ჩამოტვირთვა ჩერდება..."
+            _save_job(job_id)
+            return _public_job(job)
         control = _controls.get(job_id)
-        if not control or job.get("status") not in {"running", "paused", "queued", "review_required"}:
+        if not control or status not in {"running", "paused", "queued", "review_required"}:
             raise HTTPException(409, "პროექტის შეჩერება ამ ეტაპზე შეუძლებელია.")
         control.cancel()
         event = _review_events.get(job_id)
@@ -814,8 +844,8 @@ def delete_job(job_id: str, authorization: str | None = Header(default=None)) ->
     _require_api_key(authorization)
     job = _job_or_404(job_id)
     with _lock:
-        if job.get("status") in {"running", "paused", "queued", "review_required", "cancelling"}:
-            raise HTTPException(409, "ჯერ გააჩერე დამუშავება, შემდეგ წაშალე პროექტი.")
+        if job.get("status") in {"running", "paused", "queued", "review_required", "downloading", "cancelling"}:
+            raise HTTPException(409, "ჯერ გააუქმე მიმდინარე დამუშავება ან ჩამოტვირთვა, შემდეგ წაშალე პროექტი.")
         _jobs.pop(job_id, None)
         _controls.pop(job_id, None)
         _review_events.pop(job_id, None)
