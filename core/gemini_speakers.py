@@ -93,13 +93,14 @@ def build_prompt(segments: list[dict], want: int = 0, forced_genders: Optional[l
         "You are given the audio of a video and a numbered, timed transcript of it.\n"
         "Listen to the audio and decide:\n"
         "1. How many different people speak (1 to %d). Do not count music, crowds or background noise.\n"
-        "2. The gender of each speaker, judged from the VOICE: \"male\" or \"female\".\n"
-        "3. Which speaker says each numbered line.\n"
-        "4. Which Georgian voice each speaker needs: \"giorgi\" for a male speaker, \"nino\" for a female speaker.\n"
+        "2. The perceived voice gender of each speaker from AUDIO ONLY: \"male\" or \"female\". Do not infer gender from names, roles, text, appearance, or stereotypes.\n"
+        "3. Give a confidence score from 0.0 to 1.0 for each voice-gender estimate. If uncertain, use a score below 0.6 and still choose the closest perceived voice category.\n"
+        "4. Which speaker says each numbered line. Use vocal identity, not gender alone, to keep the same person consistent.\n"
+        "5. Which Georgian voice each speaker needs: \"giorgi\" for a male-sounding voice, \"nino\" for a female-sounding voice.\n"
         "%s"
         "Name speakers s1, s2, ... The same person must always keep the same name.\n"
         "Answer with JSON only, in exactly this shape:\n"
-        "{\"speakers\":[{\"id\":\"s1\",\"gender\":\"male\",\"voice\":\"giorgi\"}],"
+        "{\"speakers\":[{\"id\":\"s1\",\"gender\":\"male\",\"gender_confidence\":0.85,\"voice\":\"giorgi\"}],"
         "\"lines\":[{\"n\":0,\"s\":\"s1\"}]}\n"
         "Every transcript line number must appear once in \"lines\".\n\n"
         "TRANSCRIPT (number | time | text):\n%s\n"
@@ -138,9 +139,14 @@ def normalize(data: dict, segments: list[dict]) -> Optional[dict]:
             continue
         sid, g = str(sp.get("id", "")).strip(), str(sp.get("gender", "")).strip().lower()
         if sid and g in ("male", "female"):
-            gender_of[sid] = g
+            try:
+                confidence = max(0.0, min(1.0, float(sp.get("gender_confidence", sp.get("confidence", 0.7)))))
+            except (TypeError, ValueError):
+                confidence = 0.7
+            gender_of[sid] = (g, confidence)
     if not gender_of:
         return None
+    gender_labels = {sid: value[0] for sid, value in gender_of.items()}
 
     per_line: list[Optional[str]] = [None] * len(segments)
     for ln in raw_lines:
@@ -181,15 +187,15 @@ def normalize(data: dict, segments: list[dict]) -> Optional[dict]:
         if sid in keep:
             remap[sid] = sid
         else:
-            same = [k for k in keep if gender_of[k] == gender_of[sid]]
+            same = [k for k in keep if gender_labels[k] == gender_labels[sid]]
             remap[sid] = (same or keep)[0]
     per_line = [remap[v] for v in per_line]
 
     final_ids = {old: f"speaker_{i + 1}" for i, old in enumerate(keep)}
     speakers = {}
     for old, new in final_ids.items():
-        g = gender_of[old]
-        speakers[new] = {"gender": g, "voice": VOICE_BY_GENDER[g]}     # gender always decides the voice
+        g, confidence = gender_of[old]
+        speakers[new] = {"gender": g, "gender_confidence": confidence, "voice": VOICE_BY_GENDER[g]}     # gender always decides the voice
     return {"speakers": speakers, "lines": [final_ids[v] for v in per_line]}
 
 
