@@ -1,0 +1,48 @@
+services:
+  geodubber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: geodubber-online:oracle-arm64
+    container_name: geodubber
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GEODUBBER_HOME: /var/data/geodubber
+      HF_HOME: /var/data/geodubber/hf-cache
+      TORCH_HOME: /var/data/geodubber/torch-cache
+      PORT: "10000"
+      GEODUBBER_MAX_UPLOAD_BYTES: "8589934592"
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      NUMEXPR_NUM_THREADS: "2"
+    volumes:
+      - /var/lib/geodubber:/var/data
+    expose:
+      - "10000"
+    mem_limit: 10g
+    cpus: 2.0
+    stop_grace_period: 5m
+
+  caddy:
+    image: caddy:2
+    container_name: geodubber-caddy
+    restart: unless-stopped
+    depends_on:
+      - geodubber
+    environment:
+      GEODUBBER_DOMAIN: ${GEODUBBER_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/oracle-cloud/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
