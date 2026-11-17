@@ -580,10 +580,18 @@ class Pipeline:
         stem = Path(info.path).stem
         segs = self.state["segments"]
         outs = {}
-        outs["georgian_srt"] = str(SUB.write_srt(segs, out_dir / f"{stem}_GE.srt", "translation"))
-        outs["original_srt"] = str(SUB.write_srt(segs, out_dir / f"{stem}_original.srt", "text"))
+        if getattr(self.s, "export_subtitle_files", True):
+            outs["georgian_srt"] = str(SUB.write_srt(segs, out_dir / f"{stem}_GE.srt", "translation"))
+            outs["original_srt"] = str(SUB.write_srt(segs, out_dir / f"{stem}_original.srt", "text"))
+        else:
+            # Remove stale subtitle files when an existing project is rerun with subtitles disabled.
+            for subtitle_file in (out_dir / f"{stem}_GE.srt", out_dir / f"{stem}_original.srt"):
+                try:
+                    subtitle_file.unlink(missing_ok=True)
+                except OSError:
+                    self.log.warning("Could not remove old subtitle file: %s", subtitle_file)
         outs["translation_txt"] = str(SUB.write_txt(segs, out_dir / f"{stem}_translation.txt"))
-        srt = outs["georgian_srt"] if self.s.georgian_subtitles else None
+        srt = outs.get("georgian_srt") if self.s.georgian_subtitles else None
         vpreset = self.s.preset().get("video_preset") or self.s.video_preset
         outs["video"] = str(export_video(info.path, self.work / "mix.m4a", out_dir / f"{stem}_GE_DUBBED.mp4", info, srt,
                                          self.s.burn_subtitles, self.s.video_crf, vpreset,
