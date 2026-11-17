@@ -59,6 +59,7 @@ class Settings:
     preserve_background: bool = True
     auto_speakers: bool = True
     georgian_subtitles: bool = True
+    export_subtitle_files: bool = True  # Separate SRT files; online dubbing can disable all subtitle output
     original_subtitles: bool = False
     burn_subtitles: bool = False                # False -> soft (selectable) subtitle track, no re-encode
     video_crf: int = 20
