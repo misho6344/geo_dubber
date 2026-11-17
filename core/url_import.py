@@ -15,6 +15,7 @@ import shutil
 import socket
 import time
 from pathlib import Path
+from typing import Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
@@ -27,6 +28,15 @@ MAGNET_INFO_HASH = re.compile(r"^(?:[0-9a-fA-F]{40}|[A-Z2-7]{32})$")
 
 class VideoUrlError(ValueError):
     pass
+
+
+class VideoUrlCancelled(VideoUrlError):
+    """Raised when a user cancels an in-progress source download."""
+
+
+def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise VideoUrlCancelled("ჩამოტვირთვა გაუქმდა.")
 
 
 def _validate_youtube_url(url: str) -> bool:
@@ -86,7 +96,7 @@ def _tracker_is_public(tracker: str) -> bool:
         return False
 
 
-def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progress) -> Path:
+def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progress, cancelled: Callable[[], bool] | None = None) -> Path:
     query = parse_qs(urlparse(magnet).query)
     info_hashes = [
         item.split(":", 2)[-1].strip()
@@ -129,6 +139,7 @@ def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progres
         metadata_deadline = time.monotonic() + 300
         last_update = 0.0
         while True:
+            _check_cancelled(cancelled)
             try:
                 torrent_info = handle.torrent_file()
             except Exception:
@@ -176,6 +187,7 @@ def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progres
 
         deadline = time.monotonic() + max(3600, int(__import__("os").getenv("GEODUBBER_TORRENT_TIMEOUT", "86400")))
         while True:
+            _check_cancelled(cancelled)
             now = time.monotonic()
             if now >= deadline:
                 raise VideoUrlError("ტორენტის ჩამოტვირთვის დროის ლიმიტი ამოიწურა.")
@@ -214,13 +226,14 @@ def _download_magnet(magnet: str, destination_dir: Path, max_bytes: int, progres
                 pass
 
 
-def _download_direct(url: str, destination: Path, max_bytes: int, progress) -> Path:
+def _download_direct(url: str, destination: Path, max_bytes: int, progress, cancelled: Callable[[], bool] | None = None) -> Path:
     current = url
     session = requests.Session()
     session.headers.update({"User-Agent": "GeoDubber/1.0", "Accept": "video/*,application/octet-stream;q=0.9,*/*;q=0.5"})
     temporary = destination.with_suffix(destination.suffix + ".uploading")
     try:
         for redirect_count in range(6):
+            _check_cancelled(cancelled)
             extension = _validate_public_https_url(current)
             response = session.get(current, stream=True, timeout=(15, 60), allow_redirects=False)
             if response.status_code in REDIRECT_CODES:
@@ -243,6 +256,7 @@ def _download_direct(url: str, destination: Path, max_bytes: int, progress) -> P
             destination.parent.mkdir(parents=True, exist_ok=True)
             with temporary.open("wb") as stream:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    _check_cancelled(cancelled)
                     if not chunk:
                         continue
                     total += len(chunk)
@@ -268,7 +282,7 @@ def _download_direct(url: str, destination: Path, max_bytes: int, progress) -> P
         session.close()
 
 
-def _download_youtube(url: str, destination_dir: Path, max_bytes: int, progress) -> Path:
+def _download_youtube(url: str, destination_dir: Path, max_bytes: int, progress, cancelled: Callable[[], bool] | None = None) -> Path:
     try:
         from yt_dlp import YoutubeDL
     except ImportError as exc:
@@ -278,6 +292,7 @@ def _download_youtube(url: str, destination_dir: Path, max_bytes: int, progress)
     outtmpl = str(destination_dir / "source.%(ext)s")
 
     def hook(data):
+        _check_cancelled(cancelled)
         status = data.get("status")
         downloaded = int(data.get("downloaded_bytes") or 0)
         total = int(data.get("total_bytes") or data.get("total_bytes_estimate") or 0)
@@ -310,7 +325,10 @@ def _download_youtube(url: str, destination_dir: Path, max_bytes: int, progress)
     except VideoUrlError:
         raise
     except Exception as exc:
+        if cancelled is not None and cancelled():
+            raise VideoUrlCancelled("ჩამოტვირთვა გაუქმდა.") from exc
         raise VideoUrlError("YouTube ვიდეოს ჩამოტვირთვა ვერ მოხერხდა. გადაამოწმე ბმული და ვიდეოს ხელმისაწვდომობა.") from exc
+    _check_cancelled(cancelled)
 
     candidates = [
         path for path in destination_dir.glob("source.*")
@@ -326,15 +344,16 @@ def _download_youtube(url: str, destination_dir: Path, max_bytes: int, progress)
     return result
 
 
-def download_video_url(url: str, destination_dir: str | Path, max_bytes: int, progress) -> Path:
+def download_video_url(url: str, destination_dir: str | Path, max_bytes: int, progress, cancelled: Callable[[], bool] | None = None) -> Path:
     raw = str(url or "").strip()
     if len(raw) > 4096:
         raise VideoUrlError("ვიდეოს ბმული ზედმეტად გრძელია.")
     parsed = urlparse(raw)
+    _check_cancelled(cancelled)
     if parsed.scheme.lower() == "magnet":
-        return _download_magnet(raw, Path(destination_dir), max_bytes, progress)
+        return _download_magnet(raw, Path(destination_dir), max_bytes, progress, cancelled)
     if _validate_youtube_url(raw):
-        return _download_youtube(raw, Path(destination_dir), max_bytes, progress)
+        return _download_youtube(raw, Path(destination_dir), max_bytes, progress, cancelled)
     extension = _validate_public_https_url(raw)
     destination = Path(destination_dir) / ("source" + extension)
-    return _download_direct(raw, destination, max_bytes, progress)
+    return _download_direct(raw, destination, max_bytes, progress, cancelled)
