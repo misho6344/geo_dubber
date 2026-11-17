@@ -71,6 +71,7 @@ def _public_job(job: dict) -> dict:
         "updatedAt": job.get("updatedAt"),
         "fileName": job.get("fileName", ""),
         "fileSize": int(job.get("fileSize") or 0),
+        "downloadProgress": job.get("downloadProgress") or {},
         "progress": job.get("progress") or {},
         "message": job.get("message", ""),
         "warnings": job.get("warnings") or [],
@@ -531,6 +532,109 @@ async def upload_video(job_id: str, request: Request, authorization: str | None 
         _controls[job_id] = __import__("core.ffmpeg_utils", fromlist=["Control"]).Control()
         _save_job(job_id)
         _executor.submit(_run_job, job_id)
+    return _public_job(job)
+
+
+def _run_url_import(job_id: str, source_url: str) -> None:
+    """Download an authorized source URL, then hand the file to the normal pipeline."""
+    from core.url_import import VideoUrlError, download_video_url
+    job = _job_or_404(job_id)
+    folder = _job_dir(job_id)
+
+    def on_download(downloaded: int, total: int, state: str) -> None:
+        with _lock:
+            current = _jobs.get(job_id)
+            if not current or current.get("status") in {"cancelled", "cancelling"}:
+                return
+            fraction = min(1.0, downloaded / total) if total else 0.0
+            current["downloadProgress"] = {
+                "downloadedBytes": downloaded,
+                "totalBytes": total,
+                "fraction": fraction,
+                "state": state,
+            }
+            current["progress"] = {
+                "overall": 0.0,
+                "stage": "download",
+                "stageLabel": "ვიდეოს ბმულიდან ჩამოტვირთვა",
+                "stageFraction": fraction,
+                "message": f"ჩამოტვირთულია {downloaded // (1024 * 1024)} MB"
+                    + (f" / {total // (1024 * 1024)} MB" if total else ""),
+            }
+            current["message"] = current["progress"]["message"]
+            _save_job(job_id)
+
+    try:
+        on_download(0, 0, "starting")
+        source_path = download_video_url(source_url, folder, MAX_UPLOAD_BYTES, on_download)
+        if not source_path.is_file():
+            raise VideoUrlError("ვიდეოს ჩამოტვირთვა დასრულდა, მაგრამ ფაილი ვერ მოიძებნა.")
+        with _lock:
+            current = _jobs.get(job_id)
+            if not current or current.get("status") in {"cancelled", "cancelling"}:
+                source_path.unlink(missing_ok=True)
+                return
+            current["fileName"] = source_path.name
+            current["fileSize"] = source_path.stat().st_size
+            current["sourcePath"] = str(source_path)
+            current["downloadProgress"] = {
+                "downloadedBytes": source_path.stat().st_size,
+                "totalBytes": source_path.stat().st_size,
+                "fraction": 1.0,
+                "state": "finished",
+            }
+            current["status"] = "queued"
+            current["message"] = "ვიდეო ჩამოიტვირთა და დამუშავების რიგში დაემატა."
+            from core.ffmpeg_utils import Control
+            _controls[job_id] = Control()
+            _save_job(job_id)
+        _run_job(job_id)
+    except Exception as exc:
+        LOG.exception("GeoDubber URL import failed for job %s", job_id)
+        with _lock:
+            current = _jobs.get(job_id)
+            if current:
+                current["status"] = "failed"
+                current["error"] = str(exc)[:1200]
+                current["message"] = "ვიდეოს ბმულიდან მიღება ვერ მოხერხდა."
+                _save_job(job_id)
+
+
+@app.post("/v1/jobs/{job_id}/source-url")
+async def import_video_url(
+    job_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_api_key(authorization)
+    job = _job_or_404(job_id)
+    if job.get("status") != "upload_pending":
+        raise HTTPException(409, "ამ პროექტისთვის ვიდეოს წყარო უკვე მითითებულია.")
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "ვიდეოს ბმულის JSON ფორმატი არასწორია.")
+    source_url = str(payload.get("url") or "").strip()
+    if not source_url or len(source_url) > 4096:
+        raise HTTPException(400, "შეიყვანე სწორი ვიდეოს ბმული.")
+    from urllib.parse import urlparse
+    parsed = urlparse(source_url)
+    if parsed.scheme.lower() == "magnet":
+        raise HTTPException(415, "Magnet/Torrent ბმულები არ არის მხარდაჭერილი. გამოიყენე ატვირთული ვიდეო ან პირდაპირი HTTPS ბმული იმ მასალაზე, რომლის გამოყენების უფლებაც გაქვს.")
+    with _lock:
+        job["status"] = "downloading"
+        job["message"] = "ვიდეოს ბმული მიღებულია. ჩამოტვირთვა იწყება."
+        job["sourceUrlType"] = "youtube" if (parsed.hostname or "").lower().removeprefix("www.") in {"youtube.com", "m.youtube.com", "youtu.be"} else "direct"
+        job["downloadProgress"] = {"downloadedBytes": 0, "totalBytes": 0, "fraction": 0.0, "state": "starting"}
+        job["progress"] = {
+            "overall": 0.0,
+            "stage": "download",
+            "stageLabel": "ვიდეოს ბმულიდან ჩამოტვირთვა",
+            "stageFraction": 0.0,
+            "message": "ჩამოტვირთვა იწყება...",
+        }
+        _save_job(job_id)
+    _executor.submit(_run_url_import, job_id, source_url)
     return _public_job(job)
 
 
