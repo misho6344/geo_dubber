@@ -6,6 +6,19 @@ This README describes the slim source distribution. It includes the application 
 
 > **Credential security:** Gemini API keys must be supplied through the `GEMINI_API_KEY` environment variable. The repository intentionally excludes the local `settings.json` file. If a key was ever committed, revoke it and create a replacement; deleting it from the latest version does not remove it from old Git history.
 
+## Online deployment (Render)
+
+The repository also includes a CPU-first online API (`online_api.py`) that calls the existing checkpointed `Pipeline`; it does not launch the PySide6 desktop UI. `Dockerfile`, `requirements-online.txt`, and `render.yaml` describe the hosted service. The API supports authenticated job creation, streamed video upload, optional subtitle-file upload, progress/history, translation review, pause/resume/cancel, speaker previews, and MP4 download.
+
+### Deploy
+
+1. Create the GeoDubber Render Blueprint from this repository and review its proposed resources before applying. The Blueprint requests one Standard Docker web service in Frankfurt with a 50 GB persistent disk; this is a paid CPU service, not a GPU service.
+2. Configure `GEODUBBER_API_TOKEN` as a random secret of at least 32 characters, and set `GEMINI_API_KEY` and (if using gated pyannote speaker models) `HF_TOKEN` as Render secrets. Do not commit any of these values.
+3. In the Admin Panel Render service, set `GEODUBBER_API_URL` to the GeoDubber service URL and set the same `GEODUBBER_API_TOKEN` value.
+4. Wait for `/healthz` to return `{"status":"ok"}`, then open Admin Panel → GeoDubber.
+
+The first online version is CPU-based. Whisper models and optional voice models download on first use and require persistent storage. F5-TTS, Demucs, and speaker diarization can consume substantial RAM/CPU and may need a larger service or dedicated GPU worker. A Render Standard CPU service does not provide a GPU. Performance and long-film completion time must be measured with real videos before relying on it for production. The API currently processes one job at a time to avoid memory exhaustion. Store only videos you have rights to process, and remove completed projects when no longer needed.
+
 ## Latest changes
 
 ### v3.10
