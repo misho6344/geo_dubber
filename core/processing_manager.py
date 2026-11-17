@@ -163,7 +163,7 @@ class Pipeline:
         if self._stage_key and self._stage_key != "review" and self._stage_key not in done_keys:
             measured_elapsed += max(0.0, elapsed)
         total_eta = None
-        if overall >= 0.03 and measured_elapsed >= 8.0:
+        if self._stage_key != "review" and overall >= 0.03 and measured_elapsed >= 8.0:
             total_eta = max(0.0, measured_elapsed * (1.0 - overall) / overall)
         self.on_progress(Progress(
             self._stage_key, label, frac, overall, message, eta, speed, status, total_eta
