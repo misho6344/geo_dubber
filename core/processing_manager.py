@@ -257,6 +257,13 @@ class Pipeline:
                     )
                 else:
                     reason = errors[0] if errors else "Gemini returned an incomplete speaker map"
+                    if any(marker in reason.lower() for marker in ("429", "resource_exhausted", "exceeded your current quota", "check your plan and billing")):
+                        # Share the hard-quota state with the translator so the same run
+                        # does not immediately probe Gemini again for every subtitle batch.
+                        if hasattr(self.be.translator, "_hard_quota_reason"):
+                            self.be.translator._hard_quota_reason = reason[:240]
+                        else:
+                            setattr(self.be.translator, "_hard_quota_reason", reason[:240])
                     self.warn(f"Gemini speaker analysis was unavailable ({reason[:180]}). Using local speaker detection.")
 
             if not used_gemini:
