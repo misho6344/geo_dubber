@@ -193,8 +193,8 @@ def stabilise(segs: list[dict], wav16k: Path, info: dict[str, dict]) -> tuple[di
     measured = sum(1 for f in f0s if f)
     if measured and trial_moved > MAX_MOVE_SHARE * measured:
         msgs.append(f"The pitch check would move {trial_moved} of {measured} measured lines, which is too many to "
-                    "be safe, so no voices were changed. Gemini's speaker analysis (add the API key) or Review "
-                    "is needed to fix the characters.")
+                    "be safe, so no voices were changed. Gemini speaker analysis (when quota is available) or "
+                    "manual Review is needed to fix the characters.")
         trial = speakers
         unresolved = 0
     else:
