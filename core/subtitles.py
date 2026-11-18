@@ -147,6 +147,10 @@ def read_timed_txt(path: str | Path) -> list[dict]:
         if m:
             start, end, body = _parse_ts(m.group(1)), _parse_ts(m.group(2)), m.group(3).strip()
         else:
+            # A malformed SRT range must not be mistaken for a plain
+            # "timestamp text" line (the arrow and end time are not dialogue).
+            if "-->" in ln:
+                continue
             m = re.match(
                 r"^(\d{1,2}:\d{2}:\d{2}[,\.]\d{1,3}|\d{1,2}:\d{2}[,\.]\d{1,3})\s+(.+)$",
                 ln,
@@ -190,8 +194,16 @@ def read_subtitle_file(path: str | Path) -> list[dict]:
         segs = read_srt(path)
     elif ext in (".vtt", ".webvtt"):
         segs = read_vtt(path)
-    elif ext in (".txt", ".csv"):
-        # try timed txt first; if empty, try as srt-like
+    elif ext == ".txt":
+        # A .txt file may contain a complete SRT or WebVTT export.
+        # Prefer block-based subtitle formats before the looser timed-TXT parser;
+        # otherwise SRT timecode lines can be misread as dialogue such as "--> 00:01:10,000".
+        segs = read_srt(path)
+        if not segs:
+            segs = read_vtt(path)
+        if not segs:
+            segs = read_timed_txt(path)
+    elif ext == ".csv":
         segs = read_timed_txt(path)
         if not segs:
             segs = read_srt(path)
