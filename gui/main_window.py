@@ -199,17 +199,18 @@ class MainWindow(QMainWindow):
         # --- E. controls
         row = QHBoxLayout()
         self.start_btn = QPushButton("Start Dubbing"); self.start_btn.setObjectName("primary"); self.start_btn.clicked.connect(self.start)
-        self.pause_btn = QPushButton("Pause"); self.resume_btn = QPushButton("Resume")
-        self.stop_btn = QPushButton("Stop (keep progress)"); self.cancel_btn = QPushButton("Cancel and delete project")
+        self.resume_btn = QPushButton("Resume")
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setToolTip("Safely stop at a checkpoint and keep completed progress.")
+        self.cancel_btn = QPushButton("Cancel and delete project")
         self._delete_after_stop = False
-        self.pause_btn.clicked.connect(lambda: self.worker and self.worker.pause() or self._paused(True))
         self.resume_btn.clicked.connect(lambda: self.worker and self.worker.resume() or self._paused(False))
         self.stop_btn.clicked.connect(self.stop)
         self.cancel_btn.clicked.connect(self.cancel_and_delete)
         self.open_btn = QPushButton("Open Output Folder"); self.open_btn.clicked.connect(self.open_output)
         self.preview_btn = QPushButton("Preview Translation"); self.preview_btn.clicked.connect(self.preview_translation)
         self.srt_btn = QPushButton("Export Subtitles"); self.srt_btn.clicked.connect(self.export_subs)
-        for b in (self.start_btn, self.pause_btn, self.resume_btn, self.stop_btn, self.cancel_btn, self.preview_btn, self.srt_btn, self.open_btn):
+        for b in (self.start_btn, self.resume_btn, self.stop_btn, self.cancel_btn, self.preview_btn, self.srt_btn, self.open_btn):
             row.addWidget(b)
         lay.addLayout(row)
 
@@ -238,7 +239,6 @@ class MainWindow(QMainWindow):
 
     def _buttons(self, running: bool, paused: bool = False):
         self.start_btn.setEnabled(not running)
-        self.pause_btn.setEnabled(running and not paused)
         self.resume_btn.setEnabled(running and paused)
         self.stop_btn.setEnabled(running)
         # Cancel-and-delete works whenever a project is running or loaded (also after Preview Translation).
@@ -626,4 +626,5 @@ class MainWindow(QMainWindow):
             "4. Wait for completion; open the output folder.\n\n"
             "First run: Settings > Models to download the models, and Settings > Voices to add reference voices "
             "(one per character you need, at least one male and one female).\n\n"
-            "Pause stops at the next safe point; Cancel keeps finished steps so you can resume."))
+            "Stop safely stops at the next checkpoint and keeps finished steps so you can resume. "
+            "Cancel and delete removes the project data."))
