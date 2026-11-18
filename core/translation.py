@@ -134,6 +134,24 @@ def _is_quota_error(e: Exception) -> bool:
     return code == 429 or "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e)[:40]
 
 
+_HARD_QUOTA_MARKERS = (
+    "exceeded your current quota",
+    "check your plan and billing",
+    "daily quota",
+    "daily limit",
+    "requests per day",
+    "per-day quota",
+)
+
+
+def _is_hard_quota_error(e: Exception) -> bool:
+    """True for project/day quota exhaustion, not a short RPM/TPM cooldown."""
+    message = str(e).lower()
+    if any(marker in message for marker in _HARD_QUOTA_MARKERS):
+        return True
+    return "resource_exhausted" in message and _retry_delay(e) is None
+
+
 TRANSIENT_MARKERS = ("503", "504", "500", "502", "UNAVAILABLE", "DEADLINE_EXCEEDED", "INTERNAL", "high demand")
 
 
@@ -320,6 +338,7 @@ class GeminiTranslator(Translator):
         self.sequential = bool(sequential)
         self.last_notes: list[str] = []
         self._cool_until: dict[str, float] = {}
+        self._hard_quota_reason = ""
         self._progress_callback = None
         self._progress_done = 0
         self._progress_total = 0
@@ -327,7 +346,8 @@ class GeminiTranslator(Translator):
         if not self.api_key:
             log.warning("NO GEMINI KEY: translation will use the word-level web fallback (much lower quality). "
                         "Set the GEMINI_API_KEY environment variable.")
-        self.stats = {"gemini": 0, "gemini_retry": 0, "web": 0, "failed": 0, "requests": 0, "quota_waits": 0}
+        self.stats = {"gemini": 0, "gemini_retry": 0, "web": 0, "failed": 0, "requests": 0, "quota_waits": 0,
+                      "daily_quota": False}
         try:
             if not self.api_key:
                 raise ValueError("GEMINI_API_KEY environment variable is not set")
@@ -357,7 +377,10 @@ class GeminiTranslator(Translator):
             remaining -= step
 
     def _generate(self, prompt: str) -> str:
-        """One request, trying the models that are not cooling down. Raises QuotaExhausted or RuntimeError."""
+        """One request, trying available models unless the project/day quota is exhausted."""
+        if self._hard_quota_reason:
+            self.stats["daily_quota"] = True
+            raise DailyQuotaExhausted(86400.0)
         # google-genai accepts a plain dict as the request config (no SDK import needed here).
         cfg = {"response_mime_type": "application/json", "temperature": 0.3}
         now = time.time()
@@ -378,12 +401,23 @@ class GeminiTranslator(Translator):
                     return text
                 last_err = RuntimeError(f"{model}: empty answer")
             except Exception as e:
-                if _is_quota_error(e) or _is_transient_error(e):
-                    delay = _retry_delay(e) or (20.0 if _is_quota_error(e) else 10.0)
+                if _is_quota_error(e):
+                    delay = _retry_delay(e)
+                    if _is_hard_quota_error(e) or (delay is not None and delay > DAILY_COOLDOWN_S):
+                        self._hard_quota_reason = str(e)[:240]
+                        self.stats["daily_quota"] = True
+                        log.warning("Gemini project/day quota exhausted; skipping remaining Gemini requests for this run: %s",
+                                    self._hard_quota_reason[:180])
+                        raise DailyQuotaExhausted(max(delay or 86400.0, DAILY_COOLDOWN_S + 1))
+                    delay = delay or 20.0
                     self._cool_until[model] = time.time() + delay
                     last_quota = e
-                    log.warning("Gemini (%s) %s, cooling down %.0fs", model,
-                                "quota reached" if _is_quota_error(e) else "busy/unavailable", delay)
+                    log.warning("Gemini (%s) quota reached, cooling down %.0fs", model, delay)
+                elif _is_transient_error(e):
+                    delay = _retry_delay(e) or 10.0
+                    self._cool_until[model] = time.time() + delay
+                    last_quota = e
+                    log.warning("Gemini (%s) temporarily unavailable, cooling down %.0fs", model, delay)
                 else:
                     last_err = e
                     log.warning("Gemini (%s) failed: %s", model, str(e)[:200])
@@ -391,6 +425,7 @@ class GeminiTranslator(Translator):
             now = time.time()
             soonest = min(self._cool_until.get(m, now) for m in self.models) - now
             if soonest > DAILY_COOLDOWN_S:
+                self.stats["daily_quota"] = True
                 raise DailyQuotaExhausted(soonest)
             raise QuotaExhausted(min(_retry_delay(last_quota) or 20.0, 120.0))
         raise RuntimeError(str(last_err) if last_err else "no model answered")
@@ -409,7 +444,7 @@ class GeminiTranslator(Translator):
                 self._wait(wait)
             except DailyQuotaExhausted as d:
                 self.stats["daily_quota"] = True
-                log.warning("%s. The remaining lines are left empty: resume after the reset.", str(d))
+                log.warning("%s. The remaining lines are left for the fallback or a later resume.", str(d))
                 return None
             except RuntimeError as e:
                 log.warning("Gemini request failed: %s", str(e)[:200])
@@ -444,19 +479,19 @@ class GeminiTranslator(Translator):
             result[i] = (ka, "gemini", note)
         # Pass 2: lines that were missing, empty, or still contained English, in a repair request.
         missing = [it for it in chunk if it["i"] not in result]
-        if missing:
+        if missing and not self._hard_quota_reason:
             for i, (ka, note) in self._translate_batch(missing, src_lang, glossary, prev, nxt, allowed_latin,
                                                        shorter=True, memory=memory).items():
                 result[i] = (ka, "gemini_retry", note)
         # Pass 3: lines that are clearly too long for their window get one "shorter" request.
         long_items = [it for it in chunk if it["i"] in result and too_long(result[it["i"]][0], it["max_seconds"])]
-        if long_items:
+        if long_items and not self._hard_quota_reason:
             for i, (ka, note) in self._translate_batch(long_items, src_lang, glossary, prev, nxt, allowed_latin,
                                                        shorter=True, check_length=True, memory=memory).items():
                 result[i] = (ka, "gemini_retry", note)
         # Pass 4: still missing -> accept Gemini's text if it at least contains Georgian letters.
         still = [it for it in chunk if it["i"] not in result]
-        if still:
+        if still and not self._hard_quota_reason:
             answers = parse_batch_answer_full(self._ask(build_batch_prompt(
                 still, src_lang=src_lang, glossary=glossary, prev=prev, nxt=nxt, shorter=True,
                 style_note=self.style_note, memory=memory)) or "")
