@@ -260,6 +260,16 @@ def _run_job(job_id: str) -> None:
     settings.hf_token = os.getenv("HF_TOKEN", "").strip()
     script_path = job.get("scriptPath")
     settings.imported_subtitles = str(script_path) if script_path else ""
+    if settings.imported_subtitles:
+        LOG.info(
+            "Job %s: subtitle script attached (%s); audio transcription and automatic translation will be skipped.",
+            job_id, settings.imported_subtitles,
+        )
+    else:
+        LOG.info(
+            "Job %s: no subtitle script attached; audio transcription and automatic Georgian translation are enabled.",
+            job_id,
+        )
     settings.output_dir = str(project_dir / "output")
     settings.cache_dir = str(CACHE_ROOT / "tts")
     settings.temp_dir = str(project_dir / "temp")

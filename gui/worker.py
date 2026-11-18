@@ -50,6 +50,16 @@ class DubWorker(QThread):
 
     def run(self):
         try:
+            subtitle_path = (self.settings.imported_subtitles or "").strip().strip('"')
+            if subtitle_path:
+                self.log_line.emit(
+                    f"Subtitle script selected: {subtitle_path}. "
+                    "Audio transcription and automatic translation will be skipped."
+                )
+            else:
+                self.log_line.emit(
+                    "No subtitle script selected. Audio transcription and automatic Georgian translation will run."
+                )
             src = self.source
             if VL.is_youtube_url(src):
                 self.log_line.emit("Downloading video (authorised content only)...")
