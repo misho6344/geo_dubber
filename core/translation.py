@@ -314,8 +314,8 @@ class GeminiTranslator(Translator):
     """Batched Gemini translation with validation, quota back-off and a flagged web fallback."""
 
     CANDIDATE_MODELS = [
-        "gemini-3.5-flash-lite",       # the model that actually answered in the field logs
-        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",       # highest free daily quota among the configured models
+        "gemini-3.6-flash",
         "gemini-3.8-flash",
     ]
 
