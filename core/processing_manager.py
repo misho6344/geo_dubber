@@ -199,7 +199,9 @@ class Pipeline:
                 "subtitle file unreadable",
                 f"Could not read imported subtitle file: {e}",
             ) from e
-        return {"path": str(path), "sha256": digest}
+        # Bump this when subtitle parsing changes so an existing project does not
+        # silently reuse segments parsed by an older, incorrect reader.
+        return {"path": str(path), "sha256": digest, "parser_version": 2}
 
     # ----------------------------------------------------------- run
     def run(self, video_path: str | Path) -> dict:
