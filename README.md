@@ -70,7 +70,7 @@ The online workflow is:
 7. Continue to voice generation, background handling, synchronization, audio mixing, and MP4 export.
 8. Download the completed MP4 from the project.
 
-The project list supports reopening jobs. The online interface provides Stop (which preserves completed checkpoints), Resume for stopped or interrupted jobs, and project deletion. Deleting an active project requests cancellation; the project disappears from the list immediately, and its files are cleaned up after the active worker has stopped safely.
+The project list supports reopening jobs without automatically resuming them. The online interface provides Stop (which preserves completed checkpoints), Resume for stopped or interrupted jobs, replacement of the timed script in a fully stopped (`cancelled` or `failed`) project, and project deletion. Replacing a script updates the input path; on Resume, the pipeline detects the changed script signature and invalidates the ASR/import stage and all dependent stages while preserving audio extraction. Deleting an active project requests cancellation; the project disappears from the list immediately, and its files are cleaned up after the active worker has stopped safely.
 
 ### Online source formats
 
