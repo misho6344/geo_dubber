@@ -46,7 +46,7 @@ button,input,select,textarea{font:inherit}button{background:#303b4e;color:#fff;b
     </label>
     <button id="clearScript" type="button">Clear</button>
   </div>
-  <p class="hint">If the supplied script is already in Georgian, translation is skipped and voices follow its timings. Optional speaker tags: [speaker_1], [male], [female].</p>
+  <p class="hint">When a script is attached, GeoDubber uses its text and timings exactly as supplied: audio transcription and automatic translation are skipped. Use a Georgian subtitle file for Georgian voice output. Without a script, GeoDubber transcribes the audio and translates it into Georgian. Optional speaker tags: [speaker_1], [male], [female].</p>
 </section>
 
 <section class="card">
@@ -238,7 +238,7 @@ button,input,select,textarea{font:inherit}button{background:#303b4e;color:#fff;b
 (function(){
 "use strict";
 const $=id=>document.getElementById(id);
-const stages=[["extract","Audio extraction"],["asr","Speech recognition"],["speakers","Speaker detection"],["translate","Translation"],["review","Review translation & voices"],["tts","Voice generation"],["separate","Background separation"],["sync","Audio synchronization"],["mix","Final audio mix"],["export","Final export"]];
+const stages=[["extract","Audio extraction"],["asr","SRT import / speech recognition"],["speakers","Speaker detection"],["translate","Translation"],["review","Review translation & voices"],["tts","Voice generation"],["separate","Background separation"],["sync","Audio synchronization"],["mix","Final audio mix"],["export","Final export"]];
 let token=sessionStorage.getItem("geodubber_token")||"",activeJob=null,pollTimer=null,reviewData=null,pendingDelete=false,jobCache=[];
 const saved=(()=>{try{return JSON.parse(localStorage.getItem("geodubber_settings")||"{}")}catch(_){return {}}})();
 function toast(msg){$("toast").textContent=msg;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),3600)}

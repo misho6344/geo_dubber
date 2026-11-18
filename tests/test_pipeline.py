@@ -151,6 +151,69 @@ def test_full_pipeline(tmp_path, dialog_video):
     assert np.abs(x[int(20 * sr):int(25 * sr)]).mean() > 1e-4
 
 
+def test_imported_subtitles_are_used_as_is_without_asr_or_translation(tmp_path, dialog_video):
+    srt = tmp_path / "georgian.srt"
+    expected = [
+        "სად მიდიხარ?",
+        "მარკეტში მივდივარ, მალე დავბრუნდები.",
+        "ფრთხილად იყავი.",
+        "ეს ხაზი დროის საზღვარს კვეთს.",
+        "ნახვამდის, მეგობარო.",
+    ]
+    blocks = []
+    for index, (start, end, text) in enumerate(zip(
+        ("00:00:01,000", "00:00:06,000", "00:00:11,000", "00:00:35,000", "00:00:50,000"),
+        ("00:00:04,000", "00:00:09,000", "00:00:14,000", "00:00:41,000", "00:00:53,000"),
+        expected,
+    ), start=1):
+        blocks.extend([str(index), f"{start} --> {end}", text, ""])
+    srt.write_text("\\n".join(blocks), encoding="utf-8")
+
+    s, be = make(tmp_path, imported_subtitles=str(srt))
+    be.recognizer.transcribe = lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("ASR must not run when an imported subtitle file is attached")
+    )
+    be.translator.translate = lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("Automatic translation must not run when an imported subtitle file is attached")
+    )
+
+    p, _ = pipe(tmp_path, s, be)
+    p.run(dialog_video)
+
+    assert [segment["text"] for segment in p.state["segments"]] == expected
+    assert [segment["translation"] for segment in p.state["segments"]] == expected
+    assert all(segment["mt_source"] == "source_srt" for segment in p.state["segments"])
+    assert p.state["input_script"] == "subtitles"
+    assert p.state["asr_chunks"] == {}
+
+
+def test_removing_imported_subtitles_reenables_asr_and_translation(tmp_path, dialog_video):
+    srt = tmp_path / "georgian.srt"
+    srt.write_text(
+        "1\\n00:00:01,000 --> 00:00:04,000\\nგამარჯობა\\n",
+        encoding="utf-8",
+    )
+    s1, be1 = make(tmp_path, imported_subtitles=str(srt))
+    p1, _ = pipe(tmp_path, s1, be1)
+    p1.run(dialog_video)
+
+    s2, be2 = make(tmp_path)
+    translation_calls = []
+    original_translate = be2.translator.translate
+
+    def tracked_translate(*args, **kwargs):
+        translation_calls.append(1)
+        return original_translate(*args, **kwargs)
+
+    be2.translator.translate = tracked_translate
+    p2, _ = pipe(tmp_path, s2, be2)
+    p2.run(dialog_video)
+
+    assert p2.state["input_script"] == "audio"
+    assert p2.state["asr_chunks"]
+    assert translation_calls
+
+
 def test_cancel_then_resume_does_not_redo_work(tmp_path, dialog_video):
     s, be = make(tmp_path)
     be.tts.cancel_after = 3

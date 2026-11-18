@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         # Imported timed script / subtitles
         sub_row = QHBoxLayout()
         self.sub_edit = QLineEdit()
-        self.sub_edit.setPlaceholderText("Optional: import timed script (SRT / VTT / TXT) — skip ASR, voice this text")
+        self.sub_edit.setPlaceholderText("Optional: Georgian timed subtitles (SRT / VTT / TXT) — use as-is, skip ASR & translation")
         if getattr(self.settings, "imported_subtitles", ""):
             self.sub_edit.setText(self.settings.imported_subtitles)
         sub_btn = QPushButton("Import subtitles…")
@@ -115,7 +115,9 @@ class MainWindow(QMainWindow):
         sub_row.addWidget(sub_clear)
         v.addLayout(sub_row)
         sub_hint = QLabel(
-            "If the file is already in Georgian, translation is skipped and voices follow these timings. "
+            "When a subtitle file is attached, GeoDubber uses its text and timings exactly as supplied: "
+            "audio transcription and automatic translation are skipped. Use a Georgian subtitle file for "
+            "Georgian voice output. Without a file, GeoDubber transcribes the audio and translates it into Georgian. "
             "Optional speaker tags: [speaker_1], [male], [female] at the start of a line."
         )
         sub_hint.setObjectName("muted")

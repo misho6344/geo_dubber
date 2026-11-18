@@ -1,6 +1,7 @@
 """The dubbing pipeline: staged, checkpointed, pausable, resumable."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -36,7 +37,7 @@ log = logging.getLogger(__name__)
 # key, label, weight (share of overall progress)
 STAGES = [
     ("extract", "Audio extraction", 5),
-    ("asr", "Speech recognition", 25),
+    ("asr", "SRT import / speech recognition", 25),
     ("speakers", "Speaker detection", 8),
     ("translate", "Translation", 10),
     ("review", "Review translation & voices", 0),
@@ -173,8 +174,56 @@ class Pipeline:
         self._stage_key, self._stage_t0 = key, time.time()
         self._emit(0.0, "starting")
 
+    def _imported_subtitle_path(self) -> Optional[Path]:
+        """Return the selected timed script, or None when automatic transcription is required."""
+        raw = str(getattr(self.s, "imported_subtitles", "") or "").strip().strip('"')
+        if not raw:
+            return None
+        path = Path(raw).expanduser()
+        if not path.is_file():
+            raise GeoDubberError(
+                "subtitle file missing",
+                f"Imported subtitle file was not found: {path}",
+            )
+        return path.resolve()
+
+    def _subtitle_signature(self) -> dict | None:
+        """Detect a changed/removed script so a resumed project cannot reuse stale ASR results."""
+        path = self._imported_subtitle_path()
+        if path is None:
+            return None
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as e:
+            raise GeoDubberError(
+                "subtitle file unreadable",
+                f"Could not read imported subtitle file: {e}",
+            ) from e
+        return {"path": str(path), "sha256": digest}
+
     # ----------------------------------------------------------- run
     def run(self, video_path: str | Path) -> dict:
+        signature = self._subtitle_signature()
+        previous_signature = self.state.get("subtitle_signature")
+        if previous_signature != signature and (previous_signature is not None or signature is not None):
+            # A different script source invalidates transcription, translation, voices and export.
+            self.invalidate("asr")
+            self.state["asr_chunks"] = {}
+            for key in (
+                "raw_segments", "segments", "speakers", "assignments", "voice_warnings",
+                "speaker_previews", "language", "input_script", "subtitle_file",
+                "tts", "tts_failures", "background", "sync", "outputs",
+            ):
+                self.state.pop(key, None)
+            self.state["tts"] = {}
+            self.state["tts_failures"] = []
+            self.state["outputs"] = {}
+            self.state["warnings"] = []
+            self.state["timings"] = {
+                key: value for key, value in (self.state.get("timings") or {}).items()
+                if key == "extract"
+            }
+        self.state["subtitle_signature"] = signature
         self.state["video"] = str(video_path)
         info = VL.probe(video_path)
         VL.validate_for_dubbing(info)
@@ -205,6 +254,71 @@ class Pipeline:
         AX.extract_mono16k(a, a16, lambda f: self._emit(0.8 + f * 0.2, "preparing speech audio"), info.duration, self.control)
 
     def _stage_asr(self, info: VL.MediaInfo):
+        subtitle_path = self._imported_subtitle_path()
+        if subtitle_path is not None:
+            try:
+                imported = SUB.read_subtitle_file(subtitle_path)
+            except (OSError, ValueError) as e:
+                raise GeoDubberError(
+                    "invalid imported subtitles",
+                    f"Could not read the imported subtitle file '{subtitle_path.name}': {e}",
+                ) from e
+
+            raw = []
+            skipped = 0
+            for item in imported:
+                text = str(item.get("text") or "").strip()
+                if not text:
+                    skipped += 1
+                    continue
+                try:
+                    start = max(0.0, float(item["start"]))
+                    end = min(float(info.duration), float(item["end"]))
+                except (KeyError, TypeError, ValueError):
+                    skipped += 1
+                    continue
+                if start >= float(info.duration) or end <= start:
+                    skipped += 1
+                    continue
+                segment = {
+                    "id": len(raw) + 1,
+                    "start": start,
+                    "end": end,
+                    "text": text,
+                }
+                speaker_id = str(item.get("speaker_id") or "").strip()
+                if speaker_id:
+                    segment["speaker_id"] = speaker_id
+                raw.append(segment)
+
+            raw.sort(key=lambda segment: (segment["start"], segment["end"]))
+            for index, segment in enumerate(raw, start=1):
+                segment["id"] = index
+            if not raw:
+                raise GeoDubberError(
+                    "empty imported subtitles",
+                    f"No usable timed subtitle lines were found in '{subtitle_path.name}'.",
+                )
+
+            self.state["asr_chunks"] = {}
+            self.state["raw_segments"] = raw
+            self.state["input_script"] = "subtitles"
+            self.state["subtitle_file"] = str(subtitle_path)
+            non_georgian = sum(1 for segment in raw if not is_valid_georgian(segment["text"]))
+            self.state["language"] = "ka" if non_georgian == 0 else "subtitle"
+            if skipped:
+                self.warn(f"Skipped {skipped} imported subtitle line(s) with invalid or out-of-video timings.")
+            if non_georgian:
+                self.warn(
+                    "The imported subtitle text is used exactly as supplied; automatic translation is disabled. "
+                    f"{non_georgian} line(s) contain no Georgian characters. Use a Georgian subtitle file "
+                    "for Georgian voice output."
+                )
+            self._emit(1.0, f"Loaded {len(raw)} subtitle lines; audio transcription skipped")
+            return
+
+        self.state["input_script"] = "audio"
+        self.state.pop("subtitle_file", None)
         t0 = time.time()
         done = {int(k): v for k, v in self.state["asr_chunks"].items()}
 
@@ -409,6 +523,26 @@ class Pipeline:
 
     def _stage_translate(self, info: VL.MediaInfo):
         segs = self.state["segments"]
+        if self._imported_subtitle_path() is not None:
+            for segment in segs:
+                source_text = str(segment.get("text") or "").strip()
+                segment["translation"] = source_text
+                segment["mt_source"] = "source_srt"
+                segment.pop("tr_note", None)
+                segment["too_long"] = (
+                    estimate_speech_seconds(source_text)
+                    > (segment["end"] - segment["start"]) * self.s.max_speedup + self.s.max_spill_seconds
+                )
+            n_long = sum(1 for segment in segs if segment.get("too_long"))
+            if n_long:
+                self.warn(
+                    f"{n_long} imported subtitle line(s) may be too long for their time window; "
+                    "shorten them in the Review editor if needed."
+                )
+            self._emit(1.0, "Imported subtitle text kept as-is; automatic translation skipped")
+            self.save()
+            return
+
         total = len([s for s in segs if not s.get("translation") or not is_valid_georgian(s.get("translation"))]) or 1
         translate_segments(self.be.translator, segs, self.state["language"], self.s.translation_batch,
                            self.state.get("glossary"),
