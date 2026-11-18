@@ -25,10 +25,11 @@ log = logging.getLogger(__name__)
 MAX_CHARACTERS = 4
 INLINE_LIMIT_BYTES = 14 * 1024 * 1024        # larger audio goes through the Files API
 VOICE_BY_GENDER = {"male": "giorgi", "female": "nino"}
+# Prefer the model with the largest free daily quota; keep lower-quota models as fallbacks.
 MODELS = [
-    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.5-flash-lite"
+    "gemini-3.8-flash",
 ]
 TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL", "502", "504", "DEADLINE")
 RETRY_WAITS = (5.0, 15.0, 30.0)     # seconds between attempts on the same model when the service is busy
