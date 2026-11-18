@@ -11,9 +11,42 @@ APP_NAME = "GeoDubber"
 APP_VERSION = "0.1.1"
 
 
+def gemini_api_key_path() -> Path:
+    """Store the server-side Gemini key outside the repository in the current user's profile."""
+    custom = os.environ.get("GEODUBBER_GEMINI_KEY_FILE", "").strip()
+    if custom:
+        return Path(custom).expanduser()
+    profile = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    return profile / APP_NAME / "secrets" / "gemini_api_key.txt"
+
+
 def get_gemini_api_key() -> str:
-    """Return the Gemini credential from the process environment only."""
+    """Read a saved server-side key first, then fall back to the environment."""
+    try:
+        saved = gemini_api_key_path().read_text(encoding="utf-8").strip()
+        if saved:
+            return saved
+    except OSError:
+        pass
     return os.environ.get("GEMINI_API_KEY", "").strip()
+
+
+def set_gemini_api_key(api_key: str) -> None:
+    """Persist the Gemini key outside the repository and use it in this process."""
+    value = str(api_key or "").strip()
+    if len(value) < 20 or len(value) > 512:
+        raise ValueError("Gemini API key must contain between 20 and 512 characters.")
+    path = gemini_api_key_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(value, encoding="utf-8")
+    try:
+        if os.name != "nt":
+            temporary.chmod(0o600)
+    except OSError:
+        pass
+    os.replace(temporary, path)
+    os.environ["GEMINI_API_KEY"] = value
 
 
 def app_dir() -> Path:
