@@ -154,11 +154,11 @@ def test_full_pipeline(tmp_path, dialog_video):
 def test_imported_subtitles_are_used_as_is_without_asr_or_translation(tmp_path, dialog_video):
     srt = tmp_path / "georgian.srt"
     expected = [
-        "სად მიდიხარ?",
-        "მარკეტში მივდივარ, მალე დავბრუნდები.",
-        "ფრთხილად იყავი.",
-        "ეს ხაზი დროის საზღვარს კვეთს.",
-        "ნახვამდის, მეგობარო.",
+        "Where are you going?",
+        "To the market, I will be back soon.",
+        "Be careful out there.",
+        "A line crossing the chunk boundary at thirty seconds.",
+        "Goodbye my friend.",
     ]
     blocks = []
     for index, (start, end, text) in enumerate(zip(
@@ -167,7 +167,7 @@ def test_imported_subtitles_are_used_as_is_without_asr_or_translation(tmp_path, 
         expected,
     ), start=1):
         blocks.extend([str(index), f"{start} --> {end}", text, ""])
-    srt.write_text("\\n".join(blocks), encoding="utf-8")
+    srt.write_text("\n".join(blocks), encoding="utf-8")
 
     s, be = make(tmp_path, imported_subtitles=str(srt))
     be.recognizer.transcribe = lambda *a, **k: (_ for _ in ()).throw(
@@ -190,7 +190,7 @@ def test_imported_subtitles_are_used_as_is_without_asr_or_translation(tmp_path, 
 def test_removing_imported_subtitles_reenables_asr_and_translation(tmp_path, dialog_video):
     srt = tmp_path / "georgian.srt"
     srt.write_text(
-        "1\\n00:00:01,000 --> 00:00:04,000\\nგამარჯობა\\n",
+        "1\n00:00:01,000 --> 00:00:04,000\nგამარჯობა\n",
         encoding="utf-8",
     )
     s1, be1 = make(tmp_path, imported_subtitles=str(srt))

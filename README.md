@@ -65,7 +65,7 @@ The online workflow is:
 2. Create a project and either upload a video or provide a supported source URL.
 3. Optionally upload a timed SRT, VTT or TXT script before uploading the video.
 4. Choose processing options, including speed/quality priority, translation batch size, speaker count, voice gender preferences, and audio mix settings.
-5. Wait for audio extraction, speech recognition (unless a timed script is supplied), speaker detection, and translation.
+5. Wait for audio extraction, timed-script import (when supplied) or speech recognition (when no script is supplied), and speaker detection. Automatic translation runs only when no timed script is attached.
 6. Review the Georgian lines and detected speakers. Listen to the original speaker samples, inspect representative video frames, correct speaker genders, and assign available Georgian voices.
 7. Continue to voice generation, background handling, synchronization, audio mixing, and MP4 export.
 8. Download the completed MP4 from the project.
@@ -104,9 +104,9 @@ The MP4 download uses a short-lived download ticket so the browser can stream th
 
 An SRT, VTT or TXT file can be uploaded as the project's timed dialogue script. Upload it before the video file.
 
-- If the imported text is already Georgian, translation can be skipped and the text is used for voice generation.
-- If the imported text is in another language, it is used as the source script for Georgian translation.
-- Imported timecodes guide the placement of the generated Georgian dialogue.
+- When a timed script is attached, its text is used exactly as supplied. Audio transcription and automatic translation are both skipped, regardless of the script's language.
+- Use a Georgian SRT/VTT/TXT file when you want the generated voices to speak Georgian. An attached foreign-language script will also be spoken as supplied, without automatic translation.
+- Imported timecodes guide the placement of the generated dialogue.
 
 The online API accepts script files up to 20 MB.
 
