@@ -44,6 +44,7 @@ _controls: dict[str, Any] = {}
 _review_events: dict[str, threading.Event] = {}
 _pipelines: dict[str, Any] = {}
 _job_futures: dict[str, Any] = {}
+_script_uploads: set[str] = set()
 _download_tickets: dict[str, dict[str, Any]] = {}
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geodubber-job")
 
@@ -587,6 +588,9 @@ async def _stream_to_file(request: Request, destination: Path, limit: int) -> in
 async def upload_video(job_id: str, request: Request, authorization: str | None = Header(default=None)) -> dict:
     _require_api_key(authorization)
     job = _job_or_404(job_id)
+    with _lock:
+        if job_id in _script_uploads:
+            raise HTTPException(409, "სუბტიტრების ატვირთვა ჯერ სრულდება.")
     if job.get("status") != "upload_pending":
         raise HTTPException(409, "ამ პროექტისთვის ვიდეო უკვე ატვირთულია.")
     raw_name = unquote(request.headers.get("x-file-name", "video.mp4"))
@@ -735,20 +739,48 @@ async def import_video_url(
 async def upload_script(job_id: str, request: Request, authorization: str | None = Header(default=None)) -> dict:
     _require_api_key(authorization)
     job = _job_or_404(job_id)
-    if job.get("status") != "upload_pending":
-        raise HTTPException(409, "სუბტიტრები ვიდეოს ატვირთვამდე უნდა აიტვირთოს.")
     raw_name = unquote(request.headers.get("x-file-name", "script.srt"))
     safe_name = Path(raw_name.replace("\\", "/")).name[:180]
     extension = Path(safe_name).suffix.lower()
     if extension not in ALLOWED_SCRIPT_EXTENSIONS:
         raise HTTPException(415, "მხარდაჭერილია SRT, VTT და TXT ფორმატები.")
     destination = _job_dir(job_id) / ("script" + extension)
-    await _stream_to_file(request, destination, 20 * 1024 * 1024)
+
     with _lock:
-        job["scriptPath"] = str(destination)
-        job["message"] = "სუბტიტრები აიტვირთა. ახლა ატვირთე ვიდეო."
-        _save_job(job_id)
-    return {"ok": True}
+        status = job.get("status")
+        if status not in {"upload_pending", "cancelled", "failed"}:
+            raise HTTPException(
+                409,
+                "არსებულ პროექტში სუბტიტრების შესაცვლელად ჯერ Stop-ით სრულად გააჩერე პროექტი; აქტიური ან paused სამუშაოს შეცვლა უსაფრთხო არ არის.",
+            )
+        future = _job_futures.get(job_id)
+        if status != "upload_pending" and future is not None and not future.done():
+            raise HTTPException(409, "პროექტის დამუშავება ჯერ სრულად არ გაჩერებულა. სცადე ხელახლა, როცა სტატუსი cancelled გახდება.")
+        if job_id in _script_uploads:
+            raise HTTPException(409, "სუბტიტრების ატვირთვა უკვე მიმდინარეობს.")
+        _script_uploads.add(job_id)
+
+    try:
+        await _stream_to_file(request, destination, 20 * 1024 * 1024)
+        with _lock:
+            current = _jobs.get(job_id)
+            if not current:
+                raise HTTPException(404, "პროექტი ვერ მოიძებნა.")
+            current["scriptPath"] = str(destination)
+            if status == "upload_pending":
+                current["message"] = "სუბტიტრები აიტვირთა. ახლა ატვირთე ვიდეო."
+            else:
+                current["error"] = ""
+                current["message"] = "სუბტიტრები შეიცვალა. დააჭირე Resume-ს, რათა პროექტმა SRT-ის ეტაპიდან თავიდან გააგრძელოს."
+            _save_job(job_id)
+        return {
+            "ok": True,
+            "replaced": status != "upload_pending",
+            "message": current["message"],
+        }
+    finally:
+        with _lock:
+            _script_uploads.discard(job_id)
 
 
 @app.get("/v1/jobs")
@@ -862,6 +894,8 @@ def resume_job(job_id: str, authorization: str | None = Header(default=None)) ->
     _require_api_key(authorization)
     job = _job_or_404(job_id)
     with _lock:
+        if job_id in _script_uploads:
+            raise HTTPException(409, "სუბტიტრების ატვირთვა ჯერ სრულდება. Resume მოგვიანებით სცადე.")
         status = job.get("status")
         if status == "paused":
             control = _controls.get(job_id)
