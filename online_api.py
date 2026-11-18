@@ -475,6 +475,26 @@ def healthz() -> dict:
     return {"status": "ok", "service": "geodubber-api"}
 
 
+@app.put("/v1/settings/gemini-key")
+async def save_gemini_key(request: Request, authorization: str | None = Header(default=None)) -> dict:
+    """Save a Gemini key for this GeoDubber host. The secret is never returned to the browser."""
+    _require_api_key(authorization)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "Gemini API Key-ის მონაცემები არასწორია.")
+    api_key = str(payload.get("apiKey") or "").strip() if isinstance(payload, dict) else ""
+    if len(api_key) < 20 or len(api_key) > 512:
+        raise HTTPException(400, "შეიყვანე სწორი Gemini API Key.")
+    try:
+        from config.settings import set_gemini_api_key
+        set_gemini_api_key(api_key)
+    except Exception:
+        LOG.exception("Could not save Gemini API key")
+        raise HTTPException(500, "Gemini API Key ვერ შეინახა სერვერზე.")
+    return {"ok": True, "geminiConfigured": True}
+
+
 @app.get("/v1/status")
 def status(authorization: str | None = Header(default=None)) -> dict:
     _require_api_key(authorization)
@@ -485,7 +505,7 @@ def status(authorization: str | None = Header(default=None)) -> dict:
             "activeJobs": active,
             "totalJobs": len(_jobs),
             "storageRoot": str(DATA_ROOT),
-            "geminiConfigured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+            "geminiConfigured": bool(__import__("config.settings", fromlist=["get_gemini_api_key"]).get_gemini_api_key()),
         }
 
 
