@@ -30,8 +30,9 @@ MODELS = [
     "gemini-3.6-flash",
     "gemini-3.5-flash-lite"
 ]
-TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL", "502", "504", "DEADLINE")
+TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL", "502", "504", "DEADLINE")
 RETRY_WAITS = (5.0, 15.0, 30.0)     # seconds between attempts on the same model when the service is busy
+QUOTA_MARKERS = ("429", "RESOURCE_EXHAUSTED", "exceeded your current quota", "check your plan and billing")
 
 
 def pitch_contradicts(gender: str, median_f0: float) -> bool:
@@ -265,6 +266,13 @@ def analyze_speakers(client, audio_path: str | Path, segments: list[dict], *, wa
                     break
                 except Exception as e:
                     msg = str(e)
+                    if any(marker.lower() in msg.lower() for marker in QUOTA_MARKERS):
+                        # A 429 is project/model quota pressure. Do not retry it four times
+                        # or probe other models: that only burns more quota on the same project.
+                        log.warning("Gemini (%s) speaker analysis stopped after quota response: %s", model, msg[:200])
+                        if errors is not None:
+                            errors.append(f"{model}: {msg[:160]}")
+                        return None
                     transient = any(m in msg for m in TRANSIENT_MARKERS)
                     log.warning("Gemini (%s) speaker analysis failed (attempt %d): %s", model, attempt + 1, msg[:200])
                     if transient and attempt < len(RETRY_WAITS):
