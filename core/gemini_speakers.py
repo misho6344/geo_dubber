@@ -133,7 +133,7 @@ def build_prompt(segments: list[dict], want: int = 0, forced_genders: Optional[l
         "\"lines\":[{\"n\":0,\"s\":\"s1\"}]}\n"
         "Every transcript line number must appear once in \"lines\".\n\n"
         "TRANSCRIPT (number | time | text):\n%s\n"
-    ) % (MAX_CHARACTERS, hint, "\n".join(lines))
+    ) % (hint, "\n".join(lines))
 
 
 def _parse_json(text: str) -> Optional[dict]:
