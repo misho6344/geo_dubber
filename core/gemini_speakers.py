@@ -22,7 +22,7 @@ from config.settings import get_gemini_api_key
 
 log = logging.getLogger(__name__)
 
-MAX_CHARACTERS = 4
+MAX_CHARACTERS = 5
 INLINE_LIMIT_BYTES = 14 * 1024 * 1024        # larger audio goes through the Files API
 VOICE_BY_GENDER = {"male": "giorgi", "female": "nino"}
 # Prefer the model with the largest free daily quota; keep lower-quota models as fallbacks.
