@@ -1,0 +1,70 @@
+name: Enzonic database availability monitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enzonic-database-monitor
+  cancel-in-progress: false
+
+jobs:
+  check-enzonic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check Enzonic MySQL gateway (read-only)
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
+          SOURCE_DB_SSL: "true"
+          SOURCE_DB_SSL_CA: ${{ secrets.SOURCE_DB_SSL_CA }}
+        run: |
+          if [ -z "$SOURCE_DATABASE_URL" ]; then
+            echo "::error::Add SOURCE_DATABASE_URL in GitHub repository Actions secrets."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/enzonic-monitor"
+          npm install --prefix "$RUNNER_TEMP/enzonic-monitor" --no-save mysql2
+          node <<'NODE'
+          const mysql = require(process.env.RUNNER_TEMP + '/enzonic-monitor/node_modules/mysql2/promise');
+
+          async function main() {
+            const url = new URL(process.env.SOURCE_DATABASE_URL);
+            if (!['mysql:', 'mysql2:'].includes(url.protocol)) {
+              throw new Error('SOURCE_DATABASE_URL must use mysql://');
+            }
+            const sslEnabled = (process.env.SOURCE_DB_SSL || 'true').toLowerCase() !== 'false';
+            const ssl = sslEnabled
+              ? { rejectUnauthorized: true, ...(process.env.SOURCE_DB_SSL_CA ? { ca: process.env.SOURCE_DB_SSL_CA } : {}) }
+              : undefined;
+            const connection = await mysql.createConnection({
+              host: url.hostname,
+              port: Number(url.port || 3306),
+              user: decodeURIComponent(url.username),
+              password: decodeURIComponent(url.password),
+              database: decodeURIComponent(url.pathname.replace(/^\\//, '')),
+              ssl,
+              connectTimeout: 10000,
+              multipleStatements: false
+            });
+            try {
+              const [rows] = await connection.query('SELECT DATABASE() AS databaseName, VERSION() AS serverVersion');
+              console.log('[ENZONIC MONITOR] CONNECTION_OK');
+              console.log('[ENZONIC MONITOR] Database:', rows[0].databaseName);
+              console.log('[ENZONIC MONITOR] Server:', rows[0].serverVersion);
+            } finally {
+              await connection.end();
+            }
+          }
+
+          main().catch((error) => {
+            console.error('[ENZONIC MONITOR] CONNECTION_FAILED');
+            console.error('[ENZONIC MONITOR] Error code:', error.code || 'UNKNOWN');
+            console.error('[ENZONIC MONITOR] Message:', error.message);
+            process.exitCode = 1;
+          });
+          NODE
