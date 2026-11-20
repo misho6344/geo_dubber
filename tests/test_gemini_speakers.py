@@ -35,3 +35,19 @@ def test_base_edge_voices_come_first_with_variants_on():
     from core.georgian_tts import EdgeGeorgianBackend
     v = EdgeGeorgianBackend(variants=True).builtin_voices()
     assert [x.id for x in v if x.builtin_params["pitch"] == "+0Hz"] == ["edge_ka_giorgi", "edge_ka_eka"]
+
+
+def test_strong_acoustic_gender_wins_when_gemini_disagrees():
+    assert G.choose_gender("male", 0.95, "female", 0.82) == ("female", "audio_pitch")
+
+
+def test_confident_gemini_wins_when_acoustic_estimate_is_weak():
+    assert G.choose_gender("female", 0.91, "male", 0.42) == ("female", "gemini")
+
+
+def test_low_confidence_gemini_falls_back_to_acoustic_estimate():
+    assert G.choose_gender("male", 0.35, "female", 0.58) == ("female", "audio_pitch")
+
+
+def test_gender_remains_unknown_when_both_estimates_are_unusable():
+    assert G.choose_gender("unknown", 0.2, "unknown", 0.1) == ("unknown", "uncertain")
