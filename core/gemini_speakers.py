@@ -120,12 +120,12 @@ def build_prompt(segments: list[dict], want: int = 0, forced_genders: Optional[l
         hint += ("The user says the main speakers, from the one who talks most to the one who talks least, are: "
                  + ", ".join(forced_genders) + ".\n")
     return (
-        "Analyze this Georgian-language audio recording. Listen to the whole recording before answering.\\n"
-        "1. Count the distinct speakers, from 1 to 5. Do not count music, crowd noise, or background sounds.\\n"
-        "2. For each speaker, estimate perceived voice gender from the audio only: \\"male\\" or \\"female\\". Base this on vocal characteristics such as pitch and timbre, compared with the other speakers in the recording. Do not infer gender from names, roles, text, appearance, or stereotypes.\\n"
-        "3. Give a confidence score from 0.0 to 1.0 for each gender estimate. If you are uncertain, still choose the closest category and give a score below 0.6.\\n"
-        "4. For each numbered line below, identify which speaker says it. Use vocal identity, not gender alone, so the same person stays consistent throughout. If two different people sound alike, treat them as separate speakers.\\n"
-        "5. Assign each speaker a Georgian voice: \\"giorgi\\" for a male-sounding voice, \\"nino\\" for a female-sounding voice.\\n"
+        "Analyze this Georgian-language audio recording. Listen to the whole recording before answering.\n"
+        "1. Count the distinct speakers, from 1 to 5. Do not count music, crowd noise, or background sounds.\n"
+        "2. For each speaker, estimate perceived voice gender from the audio only: \"male\" or \"female\". Base this on vocal characteristics such as pitch and timbre, compared with the other speakers in the recording. Do not infer gender from names, roles, text, appearance, or stereotypes.\n"
+        "3. Give a confidence score from 0.0 to 1.0 for each gender estimate. If you are uncertain, still choose the closest category and give a score below 0.6.\n"
+        "4. For each numbered line below, identify which speaker says it. Use vocal identity, not gender alone, so the same person stays consistent throughout. If two different people sound alike, treat them as separate speakers.\n"
+        "5. Assign each speaker a Georgian voice: \"giorgi\" for a male-sounding voice, \"nino\" for a female-sounding voice.\n"
         "%s"
         "Name speakers s1, s2, ... The same person must always keep the same name.\n"
         "Answer with JSON only, in exactly this shape:\n"
