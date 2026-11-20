@@ -36,6 +36,34 @@ RETRY_WAITS = (5.0, 15.0, 30.0)     # seconds between attempts on the same model
 QUOTA_MARKERS = ("429", "RESOURCE_EXHAUSTED", "exceeded your current quota", "check your plan and billing")
 
 
+def choose_gender(gemini_gender: str, gemini_confidence: float,
+                  acoustic_gender: str, acoustic_confidence: float) -> tuple[str, str]:
+    """Resolve Gemini/acoustic disagreement without blindly trusting either estimate.
+
+    A clear acoustic estimate (>=0.65) wins over a conflicting Gemini label.
+    Otherwise Gemini is used only when it reports reasonable confidence (>=0.60).
+    Returns (gender, source).
+    """
+    gg = str(gemini_gender or "").strip().lower()
+    ag = str(acoustic_gender or "").strip().lower()
+    try:
+        gc = max(0.0, min(1.0, float(gemini_confidence)))
+    except (TypeError, ValueError):
+        gc = 0.0
+    try:
+        ac = max(0.0, min(1.0, float(acoustic_confidence)))
+    except (TypeError, ValueError):
+        ac = 0.0
+
+    if ag in {"male", "female"} and ac >= 0.65 and (gg != ag or gc < 0.60):
+        return ag, "audio_pitch"
+    if gg in {"male", "female"} and gc >= 0.60:
+        return gg, "gemini"
+    if ag in {"male", "female"}:
+        return ag, "audio_pitch"
+    return "unknown", "uncertain"
+
+
 def pitch_contradicts(gender: str, median_f0: float) -> bool:
     """True when a measured median pitch is clearly outside the usual range for the stated gender.
     Adult male voices are mostly 85-180 Hz, female 165-255 Hz; only clear outliers are flagged."""
