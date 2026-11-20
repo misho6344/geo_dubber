@@ -51,3 +51,14 @@ def test_low_confidence_gemini_falls_back_to_acoustic_estimate():
 
 def test_gender_remains_unknown_when_both_estimates_are_unusable():
     assert G.choose_gender("unknown", 0.2, "unknown", 0.1) == ("unknown", "uncertain")
+
+
+def test_build_prompt_uses_the_requested_full_recording_instructions():
+    prompt = G.build_prompt(SEGS)
+    assert "Analyze this Georgian-language audio recording." in prompt
+    assert "Listen to the whole recording before answering." in prompt
+    assert "from 1 to 5" in prompt
+    assert "pitch and timbre, compared with the other speakers" in prompt
+    assert "If two different people sound alike, treat them as separate speakers." in prompt
+    assert '"giorgi" for a male-sounding voice, "nino" for a female-sounding voice' in prompt
+    assert "You are given the audio of a video" not in prompt
