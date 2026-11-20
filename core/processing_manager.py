@@ -432,13 +432,25 @@ class Pipeline:
                 info_row = self.state["speakers"].get(speaker_id)
                 gender = str(model_info.get("gender", "")).lower()
                 if info_row is not None and gender in {"male", "female"}:
-                    info_row["gender"] = gender
-                    info_row["gender_source"] = "gemini"
-                    if model_info.get("gender_confidence") is not None:
+                    gemini_confidence = model_info.get("gender_confidence", 0.7)
+                    selected_gender, gender_source = GS.choose_gender(
+                        gender,
+                        gemini_confidence,
+                        info_row.get("gender", "unknown"),
+                        info_row.get("gender_confidence", 0.0),
+                    )
+                    info_row["gender"] = selected_gender
+                    info_row["gender_source"] = gender_source
+                    if gender_source == "gemini":
                         try:
-                            info_row["gender_confidence"] = max(0.0, min(1.0, float(model_info["gender_confidence"])))
+                            info_row["gender_confidence"] = max(0.0, min(1.0, float(gemini_confidence)))
                         except (TypeError, ValueError):
-                            pass
+                            info_row["gender_confidence"] = 0.7
+                    elif gender_source == "audio_pitch":
+                        self.warn(
+                            f"{info_row.get('label', speaker_id)}: Gemini's gender estimate conflicted "
+                            "with a strong acoustic pitch estimate; using the audio estimate. Confirm in Review."
+                        )
 
         # User pre-set genders: Character 1..4 by speech duration rank
         forced = []
