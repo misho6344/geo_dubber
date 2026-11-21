@@ -332,11 +332,11 @@ Install FFmpeg and add its `bin` directory to PATH. Open a new terminal and veri
 
 ### Some original dialogue remains audible
 
-Demucs must be installed and usable for dialogue/background separation. If separation is unavailable or fails, the online pipeline keeps the original soundtrack quietly under the Georgian dub. Some original speech can therefore remain audible.
+Demucs separation runs in 10-minute chunks with live progress for CPU videos up to 3 hours. If Demucs is missing, fails, or the CPU source exceeds 3 hours, the online pipeline keeps the original soundtrack quietly under the Georgian dub. Some original speech can therefore remain audible.
 
 ### Lines overlap or sound rushed
 
-Review warnings for lines that exceed their available time window. Shorten the Georgian text in Review where possible. Generated speech can be sped up within configured limits, but a line may still overlap the next one if it is too long.
+GeoDubber measures the real generated voice clips and asks the translation service to shorten lines that cannot fit the speaker's timeline, then re-generates them before synchronization. Imported subtitle text is never rewritten. Same-speaker clips are serialized, while different speakers may overlap naturally. If a line still cannot fit after the repair attempts, it is kept in full and reported in the sync warnings.
 
 ### Magnet import does not start or stalls
 
