@@ -94,6 +94,44 @@ def test_mix_and_export(sample_video, tmp_path):
     assert not (tmp_path / "final.partial.mp4").exists()
 
 
+def test_export_keeps_speech_that_runs_past_video_end(sample_video, tmp_path):
+    info = VL.probe(sample_video)
+    sr = 24000
+    duration = info.duration + 0.5
+    t = np.arange(int(sr * duration), dtype=np.float32) / sr
+    dub = (0.25 * np.sin(2 * np.pi * 300 * t)).astype(np.float32)
+    write_wav(tmp_path / "long-dub.wav", dub, sr)
+    mixed = mix_audio(tmp_path / "long-dub.wav", tmp_path / "long-mix.m4a", duration=duration)
+    output = export_video(info.path, mixed, tmp_path / "long-final.mp4", info)
+    result = probe_json(output)
+    audio = next(stream for stream in result["streams"] if stream["codec_type"] == "audio")
+    assert float(audio["duration"]) >= info.duration + 0.35
+
+
+def test_background_music_remains_audible_during_dialogue_gaps(tmp_path):
+    sr = 24000
+    duration = 8.0
+    t = np.arange(int(sr * duration), dtype=np.float32) / sr
+    background = (0.20 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    dub = np.zeros_like(background)
+    dub[:int(1.5 * sr)] = 0.30 * np.sin(2 * np.pi * 220 * t[:int(1.5 * sr)])
+    write_wav(tmp_path / "background.wav", background, sr)
+    write_wav(tmp_path / "dub.wav", dub, sr)
+    mixed = mix_audio(
+        tmp_path / "dub.wav", tmp_path / "mixed.m4a",
+        background=tmp_path / "background.wav", bg_vol=0.8, duck=True, duration=duration,
+    )
+    decoded = tmp_path / "decoded.wav"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(mixed),
+         "-ac", "1", "-ar", str(sr), str(decoded)],
+        check=True,
+    )
+    samples, _ = read_wav(decoded)
+    quiet_music = samples[int(4 * sr):int(7 * sr)]
+    assert np.sqrt(np.mean(quiet_music ** 2)) > 0.02
+
+
 def test_mix_loudness_not_clipping(tmp_path, sample_video):
     info = VL.probe(sample_video)
     sr = 24000

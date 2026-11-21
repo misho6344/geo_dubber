@@ -1,0 +1,37 @@
+name: Media pipeline tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  media-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pytest numpy scipy soundfile fastapi
+
+      - name: Test subtitle-to-audio media pipeline
+        run: >
+          python -m pytest -q
+          tests/test_background_separator.py
+          tests/test_audio_timeline.py
+          tests/test_pipeline.py::test_fit_stage_rewrites_lines_whose_real_audio_is_too_long
+          tests/test_media.py

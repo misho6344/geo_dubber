@@ -22,7 +22,8 @@ from core import video_loader as VL
 from core.audio_io import wav_duration
 from core.audio_mixer import mix_audio
 from core.audio_synchronizer import apply_speed, plan_placements, render_dub_track
-from core.background_separator import FallbackSeparator, Separator, create_separator
+from core.background_separator import (FallbackSeparator, Separator, create_separator,
+                                        should_skip_cpu_background_separation)
 from core.errors import CancelledError, GeoDubberError, VoiceUnavailableError
 from core.ffmpeg_utils import Control
 from core.georgian_tts import TTSBackend, create_backend, synthesize_cached
@@ -41,7 +42,8 @@ STAGES = [
     ("speakers", "Speaker detection", 8),
     ("translate", "Translation", 10),
     ("review", "Review translation & voices", 0),
-    ("tts", "Voice generation", 30),
+    ("tts", "Voice generation", 27),
+    ("fit", "Timing fit", 3),
     ("separate", "Background separation", 8),
     ("sync", "Audio synchronization", 5),
     ("mix", "Final audio mix", 4),
@@ -205,6 +207,14 @@ class Pipeline:
 
     # ----------------------------------------------------------- run
     def run(self, video_path: str | Path) -> dict:
+        # One-time upgrade for projects saved before the improved audio pipeline.
+        if int(self.state.get("audio_pipeline_version") or 0) < 2:
+            self.invalidate("separate")
+            self.state.pop("background", None)
+            self.state.pop("sync", None)
+            self.state["audio_pipeline_version"] = 2
+            self.save()
+
         signature = self._subtitle_signature()
         previous_signature = self.state.get("subtitle_signature")
         if previous_signature != signature and (previous_signature is not None or signature is not None):
@@ -672,27 +682,238 @@ class Pipeline:
                                  f"First error: {failed[0][1]}")
         self.state["tts_failures"] = []
 
+    def _stage_fit(self, info: VL.MediaInfo):
+        """Re-synthesize overlong lines with shorter Georgian wording before synchronization."""
+        segments = [
+            segment for segment in (self.state.get("segments") or [])
+            if str(segment.get("translation") or "").strip()
+        ]
+        rounds_limit = max(0, min(5, int(getattr(self.s, "timing_fit_rounds", 0) or 0)))
+        shortened_total = 0
+        rounds_used = 0
+        remaining: list[int] = []
+
+        def current_durations():
+            durations: dict[int, float] = {}
+            for segment in segments:
+                segment_id = int(segment["id"])
+                entry = (self.state.get("tts") or {}).get(str(segment_id)) or {}
+                clip_path = Path(str(entry.get("path") or ""))
+                if not clip_path.is_file():
+                    continue
+                try:
+                    durations[segment_id] = wav_duration(clip_path)
+                except Exception:
+                    log.warning("Could not measure generated speech for line %s", segment_id, exc_info=True)
+            return durations
+
+        def timing_issues(durations: dict[int, float]):
+            items = []
+            for segment in segments:
+                segment_id = int(segment["id"])
+                if segment_id not in durations:
+                    continue
+                items.append({
+                    "id": segment_id,
+                    "start": float(segment.get("start", 0.0)),
+                    "end": float(segment.get("end", 0.0)),
+                    "duration": durations[segment_id],
+                    "speaker_id": str(segment.get("speaker_id") or "speaker_1"),
+                })
+            placements = plan_placements(items, self.s.max_speedup, self.s.max_spill_seconds)
+            needed = [placement.seg_id for placement in placements if placement.overflow > 0.05]
+            # Convert the actual available placement window back to the maximum
+            # raw TTS duration at the configured speed-up limit.
+            limits = {
+                placement.seg_id: max(
+                    0.4, (placement.duration - placement.overflow) * float(self.s.max_speedup)
+                )
+                for placement in placements
+            }
+            return needed, limits
+
+        # Imported SRT/VTT text is user-authored and must not be rewritten automatically.
+        imported_script = self._imported_subtitle_path() is not None
+        shorten = getattr(self.be.translator, "shorten", None)
+        for round_index in range(rounds_limit):
+            durations = current_durations()
+            needed, max_durations = timing_issues(durations)
+            if not needed or imported_script or not callable(shorten):
+                remaining = needed
+                break
+
+            voices = {voice.id: voice for voice in self.all_voices()}
+            by_id = {int(segment["id"]): segment for segment in segments}
+            repair_items = []
+            for segment_id in needed:
+                segment = by_id.get(segment_id)
+                if segment is None:
+                    continue
+                max_seconds = max_durations.get(segment_id, 0.4)
+                repair_items.append({
+                    "i": segment_id,
+                    "source": str(segment.get("text") or ""),
+                    "ka": str(segment.get("translation") or ""),
+                    "max_seconds": max(0.4, max_seconds),
+                })
+            if not repair_items:
+                remaining = needed
+                break
+
+            try:
+                replacements = shorten(repair_items) or {}
+            except CancelledError:
+                raise
+            except Exception as exc:
+                log.exception("Automatic timing-fit translation failed")
+                self.warn(f"Automatic timing fit could not contact the translation service: {exc}")
+                remaining = needed
+                break
+
+            changed_this_round = 0
+            for item in repair_items:
+                self.control.checkpoint()
+                segment_id = int(item["i"])
+                segment = by_id[segment_id]
+                candidate = replacements.get(segment_id, replacements.get(str(segment_id)))
+                candidate = str(candidate or "").strip()
+                old_text = str(segment.get("translation") or "")
+                if not candidate or candidate == old_text or not is_valid_georgian(candidate):
+                    continue
+                if estimate_speech_seconds(candidate) >= estimate_speech_seconds(old_text):
+                    continue
+
+                speaker_id = str(segment.get("speaker_id") or "")
+                voice_id = (self.state.get("assignments") or {}).get(speaker_id)
+                voice = voices.get(voice_id)
+                if voice is None:
+                    self.warn(f"Timing fit skipped line {segment_id}: its assigned Georgian voice is unavailable.")
+                    continue
+
+                try:
+                    audio_path = synthesize_cached(self.be.tts, voice, candidate, self.cache_root)
+                    actual_duration = wav_duration(audio_path)
+                except CancelledError:
+                    raise
+                except Exception as exc:
+                    log.warning("Could not re-synthesize shortened line %s: %s", segment_id, exc)
+                    self.warn(f"Timing fit could not regenerate line {segment_id}: {exc}")
+                    continue
+
+                old_duration = durations.get(segment_id, float("inf"))
+                if actual_duration >= old_duration - 0.05:
+                    continue
+
+                # If a previously completed project is repaired, its old timeline,
+                # mix and MP4 are no longer valid and must be rebuilt.
+                if shortened_total == 0:
+                    self.invalidate("sync")
+                segment["translation"] = candidate
+                segment["mt_source"] = "gemini_fit"
+                self.state["tts"][str(segment_id)] = {
+                    "path": str(audio_path),
+                    "duration": actual_duration,
+                    "text": candidate,
+                    "voice": voice_id,
+                }
+                changed_this_round += 1
+                shortened_total += 1
+                self.save()
+
+            rounds_used = round_index + 1
+            self._emit(
+                (round_index + 1) / max(1, rounds_limit),
+                f"Timing fit round {rounds_used}: shortened {changed_this_round} line(s)",
+            )
+            if not changed_this_round:
+                remaining = needed
+                break
+
+        durations = current_durations()
+        remaining, _ = timing_issues(durations)
+        self.state["fit"] = {
+            "shortened": shortened_total,
+            "remaining": remaining,
+            "rounds": rounds_used,
+            "checked": len(durations),
+            "skipped_user_script": imported_script,
+        }
+        if remaining:
+            self.warn(
+                f"{len(remaining)} line(s) are still longer than their timing allowance after automatic fit; "
+                f"ids {remaining[:15]}. They will be kept in full and flagged during synchronization."
+            )
+        self.save()
+        self._emit(1.0, f"Timing fit complete: {shortened_total} line(s) shortened")
+
     def _stage_separate(self, info: VL.MediaInfo):
         out = self.work / "background.wav"
+
+        # Reuse only a complete background stem matching this source duration.
         if out.exists() and out.stat().st_size > 1000:
-            log.info("Reusing existing background track: %s", out)
-            self.state["background"] = str(out)
+            try:
+                existing_duration = wav_duration(out)
+                tolerance = max(2.0, float(info.duration) * 0.005)
+                if abs(existing_duration - float(info.duration)) <= tolerance:
+                    log.info("Reusing verified background track: %s", out)
+                    self.state["background"] = str(out)
+                    return
+                log.warning(
+                    "Ignoring stale/incomplete background track (%.2fs; expected %.2fs)",
+                    existing_duration, info.duration,
+                )
+            except Exception:
+                log.warning("Ignoring unreadable cached background track: %s", out, exc_info=True)
+            out.unlink(missing_ok=True)
+
+        separator_device = getattr(self.be.separator, "device", self.s.device)
+        if should_skip_cpu_background_separation(separator_device, info.duration):
+            self.state["background"] = "fallback"
+            self.warn(
+                "Background separation was skipped because this CPU-only source is longer than 3 hours. "
+                "The original soundtrack will be mixed quietly under the Georgian voices; some original "
+                "dialogue may remain faintly audible. Use a supported NVIDIA GPU for full separation."
+            )
+            self._emit(1.0, "CPU limit: keeping the original soundtrack as a quiet fallback")
             return
+
+        self._emit(0.0, "Preparing background separation")
         res = None
         try:
-            res = self.be.separator.separate(self.work / "audio.wav", info.duration, out, lambda f: self._emit(f, "separating"), self.control)
+            res = self.be.separator.separate(
+                self.work / "audio.wav", info.duration, out,
+                lambda fraction: self._emit(fraction, "Separating dialogue from music and effects"),
+                self.control,
+            )
+            if res is not None:
+                result_path = Path(res)
+                if not result_path.exists() or result_path.stat().st_size < 1000:
+                    raise GeoDubberError(
+                        "invalid background output",
+                        "Background separation returned an empty or missing audio file.",
+                    )
+                actual_duration = wav_duration(result_path)
+                tolerance = max(2.0, float(info.duration) * 0.005)
+                if abs(actual_duration - float(info.duration)) > tolerance:
+                    raise GeoDubberError(
+                        "incomplete background output",
+                        f"Background track duration ({actual_duration:.2f}s) does not match the source ({info.duration:.2f}s).",
+                    )
         except CancelledError:
             raise
         except Exception as e:
             log.exception("Background separation failed")
             self.warn(f"Background separation failed ({e}). Using original audio quietly under the dub.")
             res = None
+
         if res is None:
             self.state["background"] = "fallback"
-            self.warn("Dialogue/background separation is not available: the original soundtrack is kept quietly under the "
-                      "Georgian dub, so some ORIGINAL SPEECH may remain faintly audible.")
+            self.warn(
+                "Dialogue/background separation is not available: the original soundtrack is kept quietly "
+                "under the Georgian dub, so some ORIGINAL SPEECH may remain faintly audible."
+            )
         else:
-            self.state["background"] = str(out)
+            self.state["background"] = str(res)
 
     def _stage_sync(self, info: VL.MediaInfo):
         items = []
@@ -705,6 +926,7 @@ class Pipeline:
             self.control.checkpoint()
             src = self.state["tts"][str(p.seg_id)]["path"]
             p.audio_path = str(apply_speed(src, p.speed, self.work / "speed", self.control))
+            p.duration = wav_duration(p.audio_path)
             self._emit(0.5 * (i + 1) / len(places), "adjusting speech speed")
         total = render_dub_track(places, self.work / "dub.wav", info.duration, gain=1.0,
                                  on_progress=lambda f: self._emit(0.5 + f * 0.5, "building dub track"), control=self.control)

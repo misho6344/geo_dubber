@@ -32,33 +32,72 @@ class Placement:
 
 def plan_placements(items: list[dict], max_speedup: float = 1.3, max_spill: float = 1.5,
                     min_gap: float = 0.05, max_shift: float = 0.35) -> list[Placement]:
-    """items: dicts with id, start, end, duration (TTS clip length), speaker_id.
+    """Place clips without overlapping dialogue from the same speaker.
 
-    Rules: anchor near original start (capped at max_shift so delays never snowball across
-    the video); a clip may use up to `max_spill` seconds of silence after its original window
-    (never into the next line); otherwise speed up to `max_speedup`; anything still too long
-    is placed in full (never truncated or dropped) and reported via `overflow`."""
-    items = sorted(items, key=lambda i: (i["start"], i["end"]))
+    Different speakers may overlap (as they can in the source film). A clip may
+    spill into silence after its subtitle window and is sped up only when needed
+    to fit before that speaker's next line. If it still cannot fit, it is kept
+    in full and its overflow is reported instead of silently truncating speech.
+
+    max_shift is retained for call-site compatibility; preventing self-overlap
+    takes priority over limiting the delay of a later line.
+    """
+    if not items:
+        return []
+    items = sorted(
+        items,
+        key=lambda item: (float(item["start"]), float(item["end"]), str(item.get("speaker_id", ""))),
+    )
     cursor: dict[str, float] = {}
     out: list[Placement] = []
-    for idx, it in enumerate(items):
-        orig_start = float(it["start"])
-        prev_end = cursor.get(it["speaker_id"], 0.0)
-        # Allow at most `max_shift` seconds push so long lines never cascade out of sync
-        start = orig_start if prev_end <= orig_start else min(prev_end, orig_start + max_shift)
-        nxt = next((float(j["start"]) for j in items[idx + 1:] if float(j["start"]) > start + 1e-6), None)
-        limit = float(it["end"]) + max_spill
-        if nxt is not None:
-            limit = min(limit, max(float(it["end"]), nxt - min_gap))
-        avail = max(limit - start, 0.05)
-        dur = float(it["duration"])
-        speed = 1.0 if dur <= avail else min(dur / avail, max_speedup)
-        new_dur = dur / speed
-        out.append(Placement(seg_id=it["id"], speaker_id=it["speaker_id"], start=start, duration=new_dur,
-                             orig_duration=dur, speed=speed, overflow=max(0.0, new_dur - avail)))
-        cursor[it["speaker_id"]] = start + new_dur + min_gap
-    return out
+    gap = max(0.0, float(min_gap))
+    spill = max(0.0, float(max_spill))
+    speed_limit = max(1.0, float(max_speedup))
 
+    for idx, item in enumerate(items):
+        speaker = str(item.get("speaker_id") or "speaker_1")
+        original_start = max(0.0, float(item["start"]))
+        original_end = max(original_start, float(item["end"]))
+        start = original_start
+        if speaker in cursor:
+            # Never place two clips belonging to one speaker on top of each other.
+            start = max(start, cursor[speaker] + gap)
+
+        next_same_start = next(
+            (
+                float(other["start"])
+                for other in items[idx + 1:]
+                if str(other.get("speaker_id") or "speaker_1") == speaker
+                and float(other["start"]) > original_start + 1e-6
+            ),
+            None,
+        )
+        limit = original_end + spill
+        if next_same_start is not None:
+            # Other speakers are allowed to overlap naturally and must not force
+            # this clip to be shortened. Only this speaker's next line is a boundary.
+            limit = min(limit, max(original_end, next_same_start - gap))
+
+        available = max(0.05, limit - start)
+        duration = max(0.0, float(item["duration"]))
+        speed = 1.0 if duration <= available or duration <= 0 else min(
+            duration / available, speed_limit
+        )
+        fitted_duration = duration / speed if speed > 0 else duration
+        overflow = max(0.0, fitted_duration - available)
+
+        out.append(Placement(
+            seg_id=item["id"],
+            speaker_id=speaker,
+            start=start,
+            duration=fitted_duration,
+            orig_duration=duration,
+            speed=speed,
+            overflow=overflow,
+        ))
+        cursor[speaker] = start + fitted_duration
+
+    return out
 
 def apply_speed(src: str | Path, speed: float, cache_dir: Optional[Path] = None,
                 control: Optional[Control] = None) -> Path:
@@ -90,11 +129,12 @@ def render_dub_track(placements: list[Placement], out_path: str | Path, total_du
                      sr: int = 24000, block_s: float = 30.0, gain: float = 1.0,
                      on_progress: Optional[Callable[[float], None]] = None,
                      control: Optional[Control] = None) -> float:
-    """Render all clips into one mono WAV block by block (memory stays ~1 block).
-    Returns the final track duration (clamped to video duration if total_duration > 0)."""
+    """Render clips block-by-block and extend beyond source duration when needed.
+    Returns the greater of the source duration and the final clip end."""
     placements = sorted(placements, key=lambda p: p.start)
     max_p_end = max([p.end for p in placements], default=0.0)
-    total = total_duration if total_duration > 0 else max_p_end
+    # Never trim the final spoken line when it extends beyond the source video.
+    total = max(max(0.0, float(total_duration)), max_p_end)
     n_blocks = max(1, math.ceil(total / block_s))
     loaded: dict[int, np.ndarray] = {}
     with WavWriter(out_path, sr, 1) as w:
