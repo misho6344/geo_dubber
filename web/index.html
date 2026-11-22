@@ -197,6 +197,44 @@ button:disabled{transform:none}
  .topbar{gap:7px}.topbar .toolbar{width:100%}
 }
 
+
+/* Focused layout refinements: unified source picker and shorter inputs */
+:root{--bg:#111b2c;--panel:#17263b;--panel2:#20334e;--border:#344b68;--field:#101d30}
+body{
+ background:
+  radial-gradient(ellipse at 8% 5%,rgba(59,105,155,.34),transparent 36%),
+  radial-gradient(ellipse at 92% 18%,rgba(138,91,42,.19),transparent 32%),
+  radial-gradient(ellipse at 55% 100%,rgba(43,87,111,.22),transparent 42%),
+  linear-gradient(135deg,#142238 0%,#101a2b 48%,#1a2435 100%);
+ background-attachment:fixed;
+}
+.card{background:linear-gradient(145deg,rgba(29,46,69,.97),rgba(20,33,52,.97));border-color:#354c69}
+.video-input-grid{
+ display:grid;grid-template-columns:minmax(210px,1.05fr) minmax(260px,1.35fr) minmax(150px,.65fr);
+ gap:9px;align-items:end
+}
+.video-input-grid label{min-width:0}
+.video-input-grid input{height:34px;min-height:34px}
+.video-input-grid input[type=file]{padding:3px 5px;font-size:11px}
+.video-input-grid input[type=file]::file-selector-button{height:25px;margin-right:7px;padding:3px 8px;border:1px solid #526987;border-radius:5px;background:#2b4260;color:#f3f7ff;font:600 11px "Segoe UI",Arial,sans-serif}
+.script-import-row{display:flex;align-items:end;gap:8px;margin-top:8px;max-width:690px}
+.script-import-row label{flex:1;min-width:0}
+.script-import-row input[type=file]{height:31px;min-height:31px;padding:2px 5px;font-size:10.8px}
+.script-import-row input[type=file]::file-selector-button{height:23px;margin-right:7px;padding:2px 7px;border:1px solid #526987;border-radius:5px;background:#2b4260;color:#f3f7ff;font:600 10.5px "Segoe UI",Arial,sans-serif}
+.script-import-row button{height:31px;min-height:31px;padding:4px 10px}
+.script-hint{max-width:900px;margin-top:3px;font-size:10.5px}
+#translationStyleNote{min-height:34px!important;height:36px;max-height:52px;resize:vertical;padding:6px 8px}
+.shell>section.card:nth-of-type(2) .grid.two{align-items:end}
+@media(max-width:820px){
+ .video-input-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .video-input-grid .project-name-field{grid-column:1/-1;max-width:260px}
+}
+@media(max-width:560px){
+ .video-input-grid{grid-template-columns:1fr}
+ .video-input-grid .project-name-field{grid-column:auto;max-width:none}
+ .script-import-row{max-width:none}
+}
+
 </style>
 </head>
 <body>
@@ -212,26 +250,26 @@ button:disabled{transform:none}
 
 <section class="card">
   <h2>1 · Video</h2>
-  <div class="row stack">
-    <label class="grow">Select a video file (MP4, MKV, AVI, MOV, WEBM)
+  <div class="video-input-grid">
+    <label>Select video file
       <input type="file" id="videoFile" accept=".mp4,.mkv,.avi,.mov,.webm,video/*">
     </label>
-    <label style="width:190px">Project name
+    <label>Or paste video URL / magnet link
+      <input type="url" id="sourceUrl" maxlength="4096" placeholder="YouTube URL · HTTPS video · magnet link">
+    </label>
+    <label class="project-name-field">Project name
       <input id="projectName" maxlength="100" placeholder="GeoDubber project">
     </label>
   </div>
-  <label class="grow" style="display:block;margin-top:12px">Or enter a YouTube, direct HTTPS video URL, or magnet link
-    <input type="url" id="sourceUrl" maxlength="4096" placeholder="https://youtube.com/watch?v=... · https://example.com/video.mp4 · magnet:?xt=urn:btih:...">
-  </label>
-  <p class="hint">Use either a video file or a link. Supports YouTube single videos, direct HTTPS video files, and BitTorrent magnet links. Magnet downloads need active seeders and may take time. Import only videos you own or are authorized to process.</p>
+  <p class="hint">Choose a video file or provide a YouTube, direct HTTPS video URL, or magnet link. Magnet downloads require active seeders. Only process videos you own or are authorized to use.</p>
   <div class="filemeta" id="videoMeta">No video selected</div>
-  <div class="row stack" style="margin-top:12px">
-    <label class="grow">Optional: import timed script / subtitles (SRT / VTT / TXT)
+  <div class="script-import-row">
+    <label>Optional subtitles / timed script (SRT, VTT, TXT)
       <input type="file" id="scriptFile" accept=".srt,.vtt,.txt">
     </label>
     <button id="clearScript" type="button">Clear</button>
   </div>
-  <p class="hint">When a script is attached, GeoDubber uses its text and timings exactly as supplied: audio transcription and automatic translation are skipped. Use a Georgian subtitle file for Georgian voice output. Without a script, GeoDubber transcribes the audio and translates it into Georgian. Optional speaker tags: [speaker_1], [male], [female].</p>
+  <p class="hint script-hint">If supplied, the script's text and timings are used as-is; transcription and automatic translation are skipped. For Georgian voice output, use Georgian subtitles. Optional speaker tags: [speaker_1], [male], [female].</p>
 </section>
 
 <section class="card">
@@ -272,7 +310,7 @@ button:disabled{transform:none}
   <p class="hint" id="charHint">Gemini will listen to the video and estimate the number of characters and their genders. Voice generation uses the online Edge Georgian engine.</p>
   <div class="grid two" style="margin-top:12px">
     <label>Translation style note
-      <textarea id="translationStyleNote" rows="2" maxlength="1200" placeholder="e.g. Sci-fi comedy, dry humour, natural Georgian speech"></textarea>
+      <textarea id="translationStyleNote" rows="1" maxlength="1200" placeholder="e.g. Sci-fi comedy, dry humour, natural Georgian speech"></textarea>
     </label>
     <label>Original dialogue volume (0–1)
       <input type="number" id="originalDialogueVolume" min="0" max="1" step="0.05" value="0">
