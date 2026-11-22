@@ -6,6 +6,7 @@ on GEODUBBER_HOME (attach persistent storage in production).
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -287,15 +288,16 @@ def _run_job(job_id: str) -> None:
     review_event = threading.Event()
     with _lock:
         _review_events[job_id] = review_event
-        job["status"] = "running"
-        job["message"] = "დამუშავება დაიწყო."
-        job["error"] = ""
-        _save_job(job_id)
+        if job.get("status") not in {"cancelling", "cancelled"}:
+            job["status"] = "running"
+            job["message"] = "დამუშავება დაიწყო."
+            job["error"] = ""
+            _save_job(job_id)
 
     def on_progress(progress: Any) -> None:
         with _lock:
             current = _jobs.get(job_id)
-            if not current:
+            if not current or current.get("status") in {"cancelling", "cancelled", "completed", "failed"}:
                 return
             current["progress"] = _progress_dict(progress)
             current["message"] = current["progress"]["message"] or current["progress"]["stageLabel"]
@@ -305,6 +307,7 @@ def _run_job(job_id: str) -> None:
             _save_job(job_id)
 
     def on_review(pl: Any) -> None:
+        control.checkpoint()
         voice_rows = []
         try:
             voice_rows = [
@@ -370,23 +373,36 @@ def _run_job(job_id: str) -> None:
         }
         with _lock:
             current = _jobs.get(job_id)
-            if current:
+            review_can_start = bool(
+                current and current.get("status") not in
+                {"cancelling", "cancelled", "completed", "failed"}
+            )
+            if review_can_start:
                 current["review"] = review
                 current["status"] = "review_required"
                 current["message"] = "თარგმანი და ხმები გადასახედია."
                 _save_job(job_id)
+        if not review_can_start:
+            control.checkpoint()
+            return
+
         while not review_event.wait(0.25):
             control.checkpoint()
         control.checkpoint()
+
         with _lock:
             current = _jobs.get(job_id)
-            if current:
+            review_still_active = bool(current and current.get("status") == "review_required")
+            if review_still_active:
                 current["review"] = None
                 current["status"] = "running"
                 current["message"] = "დამუშავება გრძელდება."
                 _save_job(job_id)
+        if not review_still_active:
+            control.checkpoint()
 
     try:
+        control.checkpoint()
         backends, device_note = default_backends(settings, project_dir)
         # Use the same separator selection as the desktop pipeline:
         # Demucs when installed, otherwise FallbackSeparator.
@@ -409,22 +425,26 @@ def _run_job(job_id: str) -> None:
         with _lock:
             current = _jobs.get(job_id)
             if current:
-                current["status"] = "completed"
-                current["message"] = "ქართული გახმოვანება დასრულდა."
-                current["outputs"] = {
-                    key: Path(value).name
-                    for key, value in outputs.items()
-                    if value and Path(value).is_file()
-                }
-                current["videoPath"] = str(video_path)
-                current["warnings"] = list(pipeline.state.get("warnings") or [])
-                current["progress"] = {
-                    **(current.get("progress") or {}),
-                    "overall": 1.0,
-                    "stage": "complete",
-                    "stageLabel": "დასრულებულია",
-                    "stageFraction": 1.0,
-                }
+                if current.get("status") in {"cancelling", "cancelled"}:
+                    current["status"] = "cancelled"
+                    current["message"] = "დამუშავება შეჩერდა. პროგრესი შენახულია; შეგიძლია გააგრძელო."
+                else:
+                    current["status"] = "completed"
+                    current["message"] = "ქართული გახმოვანება დასრულდა."
+                    current["outputs"] = {
+                        key: Path(value).name
+                        for key, value in outputs.items()
+                        if value and Path(value).is_file()
+                    }
+                    current["videoPath"] = str(video_path)
+                    current["warnings"] = list(pipeline.state.get("warnings") or [])
+                    current["progress"] = {
+                        **(current.get("progress") or {}),
+                        "overall": 1.0,
+                        "stage": "complete",
+                        "stageLabel": "დასრულებულია",
+                        "stageFraction": 1.0,
+                    }
                 _save_job(job_id)
     except CancelledError:
         with _lock:
@@ -438,11 +458,15 @@ def _run_job(job_id: str) -> None:
         with _lock:
             current = _jobs.get(job_id)
             if current:
-                current["status"] = "failed"
-                current["error"] = str(exc)[:1200]
-                current["message"] = "დამუშავება შეცდომით დასრულდა."
-                if pipeline is not None:
-                    current["warnings"] = list(pipeline.state.get("warnings") or [])
+                if current.get("status") in {"cancelling", "cancelled"}:
+                    current["status"] = "cancelled"
+                    current["message"] = "დამუშავება შეჩერდა. პროგრესი შენახულია; შეგიძლია გააგრძელო."
+                else:
+                    current["status"] = "failed"
+                    current["error"] = str(exc)[:1200]
+                    current["message"] = "დამუშავება შეცდომით დასრულდა."
+                    if pipeline is not None:
+                        current["warnings"] = list(pipeline.state.get("warnings") or [])
                 _save_job(job_id)
     finally:
         try:
@@ -737,8 +761,14 @@ async def import_video_url(
 
 @app.put("/v1/jobs/{job_id}/script")
 async def upload_script(job_id: str, request: Request, authorization: str | None = Header(default=None)) -> dict:
+    """Upload or safely replace a project's timed script.
+
+    Active work is cancelled first and the worker is awaited before the script
+    path is changed. The uploaded file is written atomically by _stream_to_file.
+    """
     _require_api_key(authorization)
-    job = _job_or_404(job_id)
+    _job_or_404(job_id)
+
     raw_name = unquote(request.headers.get("x-file-name", "script.srt"))
     safe_name = Path(raw_name.replace("\\", "/")).name[:180]
     extension = Path(safe_name).suffix.lower()
@@ -746,38 +776,99 @@ async def upload_script(job_id: str, request: Request, authorization: str | None
         raise HTTPException(415, "მხარდაჭერილია SRT, VTT და TXT ფორმატები.")
     destination = _job_dir(job_id) / ("script" + extension)
 
+    active_statuses = {
+        "running", "paused", "queued", "review_required", "downloading", "cancelling"
+    }
+    allowed_stopped_statuses = {"upload_pending", "cancelled", "failed", "completed"}
+
     with _lock:
-        status = job.get("status")
-        if status not in {"upload_pending", "cancelled", "failed"}:
-            raise HTTPException(
-                409,
-                "არსებულ პროექტში სუბტიტრების შესაცვლელად ჯერ Stop-ით სრულად გააჩერე პროექტი; აქტიური ან paused სამუშაოს შეცვლა უსაფრთხო არ არის.",
-            )
-        future = _job_futures.get(job_id)
-        if status != "upload_pending" and future is not None and not future.done():
-            raise HTTPException(409, "პროექტის დამუშავება ჯერ სრულად არ გაჩერებულა. სცადე ხელახლა, როცა სტატუსი cancelled გახდება.")
+        current = _jobs.get(job_id)
+        if not current:
+            raise HTTPException(404, "პროექტი ვერ მოიძებნა.")
         if job_id in _script_uploads:
             raise HTTPException(409, "სუბტიტრების ატვირთვა უკვე მიმდინარეობს.")
+
+        original_status = current.get("status")
+        future = _job_futures.get(job_id)
+
+        if original_status in active_statuses:
+            if future is None:
+                raise HTTPException(409, "მიმდინარე სამუშაოს დასრულების დადასტურება ვერ მოხერხდა.")
+
+            control = _controls.get(job_id)
+            if control is not None:
+                control.cancel()
+            event = _review_events.get(job_id)
+            if event is not None:
+                event.set()
+
+            current["status"] = "cancelling"
+            current["message"] = "სუბტიტრების განახლებისთვის მიმდინარე სამუშაო ჩერდება..."
+            _save_job(job_id)
+
+            # A queued future has not started yet. Cancel it so the single-worker
+            # executor does not run an obsolete job before the new script is used.
+            if not future.running() and not future.done():
+                future.cancel()
+
+        elif original_status not in allowed_stopped_statuses:
+            raise HTTPException(409, "სუბტიტრების შეცვლა ამ ეტაპზე შეუძლებელია.")
+
         _script_uploads.add(job_id)
 
     try:
-        await _stream_to_file(request, destination, 20 * 1024 * 1024)
+        if future is not None and not future.done():
+            try:
+                await asyncio.wait_for(asyncio.wrap_future(future), timeout=300)
+            except asyncio.TimeoutError:
+                raise HTTPException(
+                    409,
+                    "პროექტის უსაფრთხოდ გაჩერებას მეტი დრო სჭირდება. ცოტა ხანში სცადე ხელახლა.",
+                )
+            except Exception:
+                # A cancelled worker may finish by raising its cancellation exception.
+                LOG.info("GeoDubber worker stopped before script replacement for %s", job_id)
+
         with _lock:
             current = _jobs.get(job_id)
             if not current:
                 raise HTTPException(404, "პროექტი ვერ მოიძებნა.")
+            if future is not None and not future.done():
+                raise HTTPException(409, "პროექტი ჯერ კიდევ მუშაობს; სუბტიტრები არ შეცვლილა.")
+
+            if current.get("status") == "cancelling":
+                current["status"] = "cancelled"
+                current["message"] = "პროექტი გაჩერდა. ახალი სუბტიტრების მიღება შესაძლებელია."
+                _save_job(job_id)
+
+            if current.get("status") not in allowed_stopped_statuses:
+                raise HTTPException(409, "პროექტი ჯერ უსაფრთხოდ არ გაჩერებულა.")
+
+        await _stream_to_file(request, destination, 20 * 1024 * 1024)
+
+        with _lock:
+            current = _jobs.get(job_id)
+            if not current:
+                raise HTTPException(404, "პროექტი ვერ მოიძებნა.")
+
             current["scriptPath"] = str(destination)
-            if status == "upload_pending":
+            current["error"] = ""
+            if current.get("status") == "upload_pending":
                 current["message"] = "სუბტიტრები აიტვირთა. ახლა ატვირთე ვიდეო."
             else:
-                current["error"] = ""
-                current["message"] = "სუბტიტრები შეიცვალა. დააჭირე Resume-ს, რათა პროექტმა SRT-ის ეტაპიდან თავიდან გააგრძელოს."
+                # Completed projects become resumable after a new script is attached.
+                if current.get("status") == "completed":
+                    current["status"] = "cancelled"
+                current["message"] = (
+                    "ახალი სუბტიტრები ჩაიტვირთა. დააჭირე Resume-ს, "
+                    "რათა პროექტმა შეცვლილი SRT-ით გააგრძელოს."
+                )
             _save_job(job_id)
-        return {
-            "ok": True,
-            "replaced": status != "upload_pending",
-            "message": current["message"],
-        }
+
+            result_message = current["message"]
+            replaced = original_status != "upload_pending"
+
+        return {"ok": True, "replaced": replaced, "message": result_message}
     finally:
         with _lock:
             _script_uploads.discard(job_id)
@@ -941,8 +1032,17 @@ def cancel_job(job_id: str, authorization: str | None = Header(default=None)) ->
         event = _review_events.get(job_id)
         if event:
             event.set()
-        job["status"] = "cancelling"
-        job["message"] = "მიმდინარე ეტაპი უსაფრთხოდ ჩერდება..."
+
+        future = _job_futures.get(job_id)
+        if future is not None and not future.done() and not future.running() and future.cancel():
+            job["status"] = "cancelled"
+            job["message"] = "პროექტი რიგიდან გაუქმდა. პროგრესი შენახულია; შეგიძლია გააგრძელო."
+        elif future is None or future.done():
+            job["status"] = "cancelled"
+            job["message"] = "პროექტი გაჩერდა. პროგრესი შენახულია; შეგიძლია გააგრძელო."
+        else:
+            job["status"] = "cancelling"
+            job["message"] = "მიმდინარე ეტაპი უსაფრთხოდ ჩერდება..."
         _save_job(job_id)
     return _public_job(job)
 
