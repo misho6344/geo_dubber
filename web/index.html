@@ -360,6 +360,70 @@ button.primary{font-size:13.5px}
   .reviewtable{font-size:12.5px!important}
 }
 
+
+/* One-screen desktop workspace: two-column setup, full-width progress */
+@media (min-width: 1000px) and (min-height: 650px) {
+  html, body { min-height:100%; }
+  body { overflow-y:auto; }
+  .shell {
+    max-width:1600px;
+    min-height:100vh;
+    padding:8px 14px 10px;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto auto auto auto auto;
+    column-gap:12px;
+    row-gap:5px;
+    align-content:start;
+  }
+  .shell > .topbar { grid-column:1/-1; margin:0; padding:2px 2px 6px; min-height:38px; }
+  .shell > section.card:nth-of-type(1) { grid-column:1; grid-row:2; }
+  .shell > section.card:nth-of-type(2) { grid-column:2; grid-row:2; }
+  .shell > section.card:nth-of-type(3) { grid-column:1/-1; grid-row:3; }
+  .shell > .actions { grid-column:1/-1; grid-row:4; margin:2px 0; }
+  .shell > section.card:nth-of-type(4) { grid-column:1; grid-row:5; }
+  .shell > .log { grid-column:2; grid-row:5; height:58px; max-height:58px; }
+  .shell > section.card { min-width:0; padding:8px 10px; margin:0; border-radius:8px; }
+  .shell > section.card h2 { font-size:12px; margin:0 0 6px; padding-bottom:4px; }
+  .shell > section.card h2:after { width:18px; height:2px; }
+  .shell > section.card label { font-size:11px; gap:3px; }
+  .shell > section.card input:not([type=checkbox]),
+  .shell > section.card select,
+  .shell > section.card textarea { min-height:28px; padding:4px 7px; font-size:12px; }
+  .video-input-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) minmax(130px,.7fr); gap:7px; }
+  .shell > section.card:nth-of-type(1) > .hint { display:none; }
+  .shell > section.card:nth-of-type(1) .filemeta { margin-top:3px; font-size:10.5px; }
+  .script-import-row { display:flex; align-items:end; gap:7px; margin-top:6px; }
+  .script-import-row label { flex:1; min-width:0; }
+  .script-import-row button { min-height:28px; padding:4px 9px; }
+  .shell > section.card:nth-of-type(1) .script-hint { display:block; font-size:10px; line-height:1.2; margin-top:3px; }
+  .shell > section.card:nth-of-type(2) .grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+  .shell > section.card:nth-of-type(2) .option-checks { grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px 8px; margin:7px 0; }
+  .shell > section.card:nth-of-type(2) .check { font-size:10.5px; line-height:1.2; gap:5px; }
+  .shell > section.card:nth-of-type(2) .check input { width:13px; height:13px; flex:0 0 13px; }
+  .shell > section.card:nth-of-type(2) .grid.two { grid-template-columns:minmax(0,1.5fr) minmax(130px,1fr); gap:7px; }
+  .shell > section.card:nth-of-type(2) .grid.two[style*="margin-top"] { margin-top:6px!important; }
+  .shell > section.card:nth-of-type(2) textarea { min-height:29px; max-height:29px; resize:none; }
+  .shell > section.card:nth-of-type(2) #charHint { font-size:10px; line-height:1.2; margin-top:4px; }
+  .shell > section.card:nth-of-type(3) .progress { height:11px; margin:2px 0 5px; }
+  .shell > section.card:nth-of-type(3) .stages { grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px 10px; }
+  .shell > section.card:nth-of-type(3) .stage { font-size:10px; padding:1px 0; line-height:1.15; }
+  .shell > section.card:nth-of-type(3) .hint { font-size:10px; line-height:1.2; margin:2px 0 0; }
+  .shell > section.card:nth-of-type(4) { padding:6px 9px; }
+  .shell > section.card:nth-of-type(4) h2 { display:none; }
+  .shell > section.card:nth-of-type(4) .system { font-size:10px; line-height:1.2; }
+  .shell > .log { margin:0; padding:6px 8px; font-size:10px; line-height:1.2; }
+  .shell > .actions button { min-height:29px; padding:4px 9px; font-size:11px; }
+  .shell > .actions button.primary { font-size:12px; }
+}
+@media (min-width:1000px) and (max-height:649px) {
+  .shell { padding-top:5px; padding-bottom:5px; }
+  .shell > section.card { padding:6px 9px; margin:3px 0; }
+}
+@media (max-width:999px) {
+  .shell { display:block; }
+}
+
 </style>
 </head>
 <body>
