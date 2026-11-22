@@ -13,7 +13,51 @@ button,input,select,textarea{font:inherit}button{background:#303b4e;color:#fff;b
 @media(max-width:820px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar .toolbar{width:100%}.speaker{grid-template-columns:1fr 1fr}.speaker button{grid-column:1/-1}}
 @media(max-width:560px){.shell{padding:9px}.card{padding:12px}.grid,.grid.two,.character-grid,.option-checks,.stages{grid-template-columns:1fr}.row.stack{align-items:stretch;flex-direction:column}.topbar{align-items:flex-start}.brand{font-size:22px}.speaker{grid-template-columns:1fr}.dialog{padding:13px}.project{align-items:flex-start;flex-direction:column}}
 
-/* Compact, readable layout for the main workflow */
+
+/* Extra-dense desktop workflow layout */
+.shell > section.card:nth-of-type(-n+3){padding:8px 10px;margin:5px 0;border-radius:8px}
+.shell > section.card:nth-of-type(-n+3) h2{font-size:12.5px;margin:0 0 6px}
+.shell > section.card:nth-of-type(-n+3) label{gap:3px;font-size:11px;line-height:1.2}
+.shell > section.card:nth-of-type(-n+3) input:not([type=checkbox]),.shell > section.card:nth-of-type(-n+3) select,.shell > section.card:nth-of-type(-n+3) textarea{padding:4px 7px;min-height:28px;font-size:12px;border-radius:5px}
+.shell > section.card:nth-of-type(-n+3) input[type=file]{padding:2px 4px;min-height:28px;font-size:11px}
+.shell > section.card:nth-of-type(-n+3) input[type=file]::file-selector-button{padding:3px 6px;font-size:11px}
+.shell > section.card:nth-of-type(-n+3) .hint{font-size:10.5px;line-height:1.25;margin:3px 0 0}
+.shell > section.card:nth-of-type(-n+3) .filemeta{font-size:10.5px;margin-top:2px}
+.shell > section.card:nth-of-type(1) .row.stack{gap:7px}
+.shell > section.card:nth-of-type(1) label[style*="width:190px"]{width:160px!important;flex:0 0 160px}
+.shell > section.card:nth-of-type(1) label[style*="margin-top:12px"]{margin-top:5px!important}
+.shell > section.card:nth-of-type(1) .row.stack[style*="margin-top:12px"]{margin-top:5px!important}
+.shell > section.card:nth-of-type(1) > .hint{max-width:1050px}
+.shell > section.card:nth-of-type(2) .grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.shell > section.card:nth-of-type(2) #characters{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.shell > section.card:nth-of-type(2) .option-checks{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 10px;margin:6px 0}
+.shell > section.card:nth-of-type(2) .check{gap:5px;font-size:11px;line-height:1.2}
+.shell > section.card:nth-of-type(2) .check input{width:14px;height:14px;flex:0 0 14px}
+.shell > section.card:nth-of-type(2) .grid.two{grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:7px}
+.shell > section.card:nth-of-type(2) .grid.two[style*="margin-top:12px"]{margin-top:6px!important}
+.shell > section.card:nth-of-type(2) textarea{min-height:38px;max-height:60px}
+.shell > section.card:nth-of-type(2) #charHint{margin-top:4px}
+.shell > section.card:nth-of-type(3) .progress{height:11px;margin:3px 0 5px}
+.shell > section.card:nth-of-type(3) .stages{grid-template-columns:repeat(4,minmax(0,1fr));gap:1px 10px}
+.shell > section.card:nth-of-type(3) .stage{font-size:10.5px;padding:1px 0;line-height:1.2}
+.shell > section.card:nth-of-type(3) .hint{margin-top:2px}
+.actions{gap:5px;margin:6px 0}
+.actions button{min-height:29px;padding:4px 8px;font-size:11.5px;border-radius:6px}
+.actions button.primary{font-size:12.5px}
+@media(max-width:900px){
+ .shell > section.card:nth-of-type(2) .grid,.shell > section.card:nth-of-type(2) #characters{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .shell > section.card:nth-of-type(2) .option-checks{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .shell > section.card:nth-of-type(3) .stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:560px){
+ .shell > section.card:nth-of-type(-n+3){padding:8px;margin:4px 0}
+ .shell > section.card:nth-of-type(1) .row.stack{align-items:stretch;flex-direction:column}
+ .shell > section.card:nth-of-type(1) label[style*="width:190px"]{width:100%!important;flex:1}
+ .shell > section.card:nth-of-type(2) .grid,.shell > section.card:nth-of-type(2) #characters,.shell > section.card:nth-of-type(2) .grid.two,.shell > section.card:nth-of-type(2) .option-checks{grid-template-columns:1fr}
+ .shell > section.card:nth-of-type(3) .stages{grid-template-columns:1fr 1fr}
+ .actions button{flex:1 1 auto}
+}
+
 .shell > section.card:nth-of-type(-n+3){padding:11px 13px;margin:7px 0;border-radius:10px}
 .shell > section.card:nth-of-type(-n+3) h2{font-size:13px;margin:0 0 8px;letter-spacing:.15px}
 .shell > section.card:nth-of-type(-n+3) label{gap:4px;font-size:11.5px}
