@@ -551,6 +551,36 @@ input::placeholder,textarea::placeholder{color:#8295af;opacity:1}
   *,*::before,*::after{transition:none!important;scroll-behavior:auto!important}
 }
 
+
+/* Clearer, more readable processing stages and status messages */
+.stage{
+  font-size:15.5px!important;
+  font-weight:700!important;
+  line-height:1.55!important;
+  padding:10px 13px!important;
+  min-height:42px;
+  letter-spacing:.12px;
+}
+#progressText{
+  font-size:16px!important;
+  font-weight:700!important;
+  line-height:1.65!important;
+  color:#f5f7fc!important;
+  margin-top:12px!important;
+}
+#etaText{
+  font-size:15px!important;
+  font-weight:700!important;
+  line-height:1.65!important;
+  color:#f2d58a!important;
+  margin-top:8px!important;
+}
+@media(max-width:600px){
+  .stage{font-size:14px!important;padding:9px 11px!important;min-height:39px}
+  #progressText{font-size:15px!important}
+  #etaText{font-size:14px!important}
+}
+
 </style>
 </head>
 <body>
